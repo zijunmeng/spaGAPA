@@ -463,6 +463,127 @@ Remaining validation before manuscript freeze:
 - Add boundary consistency / marker ordering / SVAPA ranking stability metrics.
 - Choose final graph weights through cross-dataset evidence rather than MOB-only tuning.
 
+### Phase 8: External real-data validation runner
+
+BioML has now been moved from a benchmark-only implementation into the main
+pipeline/CLI and into an external real-data validation runner:
+
+```text
+scripts/run_external_bioml_validation.py
+```
+
+The runner explicitly follows the experimental patterns in the reference
+packages:
+
+- stAPAminer-style metrics:
+  - layer/domain ARI, NMI, purity, pairwise Jaccard
+  - DBI, Calinski-Harabasz, Silhouette, Dunn
+  - within-layer APA Pearson correlation
+  - SVAPA / LSAPA / DEAPA output tables
+  - replicate spatial gene overlap table when multiple datasets are supplied
+- metaAPA-style readiness:
+  - site count availability
+  - APA site annotation availability
+  - multi-caller consensus availability
+  - sequence-context / long-read support checklist
+
+Important design decision:
+
+```text
+metaAPA is treated as upstream site integration evidence, not as a downstream
+layer recovery baseline.
+```
+
+This avoids an unfair comparison across different layers of the analysis stack.
+
+MOB external pilot:
+
+```text
+Output:
+  spaGAPA/benchmark_results/real/external_bioml_validation_v1/
+
+n_genes = 60
+min_observed_spots = 110
+methods:
+  raw
+  stapaminer_original_imputed
+  stapaminer_knn_expression
+  spagapa_gp
+  spagapa_bioml
+```
+
+Layer recovery:
+
+```text
+raw:
+  layer_ari = 0.101117
+  layer_nmi = 0.151950
+  purity = 0.400000
+
+stapaminer_original_imputed:
+  layer_ari = 0.109863
+  layer_nmi = 0.160847
+  purity = 0.407692
+
+stapaminer_knn_expression:
+  layer_ari = 0.073448
+  layer_nmi = 0.109605
+  purity = 0.373077
+
+spagapa_gp:
+  layer_ari = 0.100875
+  layer_nmi = 0.160667
+  purity = 0.380769
+
+spagapa_bioml:
+  layer_ari = 0.388330
+  layer_nmi = 0.509298
+  purity = 0.638462
+```
+
+Downstream counts:
+
+```text
+raw:
+  n_svapa = 9
+  n_lsapa = 4
+  n_deapa = 6
+
+stapaminer_original_imputed:
+  n_svapa = 9
+  n_lsapa = 4
+  n_deapa = 5
+
+stapaminer_knn_expression:
+  n_svapa = 9
+  n_lsapa = 10
+  n_deapa = 6
+
+spagapa_gp:
+  n_svapa = 9
+  n_lsapa = 8
+  n_deapa = 8
+
+spagapa_bioml:
+  n_svapa = 9
+  n_lsapa = 9
+  n_deapa = 8
+```
+
+Interpretation:
+
+- BioML is the strongest method in layer ARI/NMI/purity on this external-validation-style MOB pilot.
+- The improvement over stAPAminer-original is large enough to support the BIB direction:
+  `0.388` vs `0.110` layer ARI.
+- Within-layer correlation is not discriminative in this pilot because the selected genes are already high coverage.
+- The next validation must include additional datasets and a low-coverage gene stratum.
+
+Implementation notes:
+
+- The runner uses the formal `SpaGAPA(..., use_bioml=True)` API.
+- `gp_alpha` and `gp_n_restarts_optimizer` are now exposed in the main pipeline/CLI to align formal benchmarks with reproducible CLI runs.
+- Matrix gene and spot IDs are cast to strings during external validation to prevent silent reindexing failures for numeric gene IDs.
+
 ---
 
 ## 9. 预期论文叙事

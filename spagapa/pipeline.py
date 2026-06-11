@@ -50,6 +50,10 @@ class SpaGAPA:
         Spatial neighbors for graph construction.
     kernel_type : str, default='matern'
         GP kernel: 'rbf', 'matern', or 'auto'.
+    gp_alpha : float, default=1e-10
+        Exact GP noise/regularization parameter.
+    gp_n_restarts_optimizer : int, default=1
+        Number of GP hyperparameter optimizer restarts.
     use_sparse_gp : bool, default=False
         Use sparse GP approximation for large datasets.
     n_inducing : int, default=100
@@ -76,6 +80,8 @@ class SpaGAPA:
         self,
         n_neighbors: int = 6,
         kernel_type: str = 'matern',
+        gp_alpha: float = 1e-10,
+        gp_n_restarts_optimizer: int = 1,
         use_sparse_gp: bool = False,
         n_inducing: int = 100,
         input_type: str = 'apa_index',
@@ -98,6 +104,8 @@ class SpaGAPA:
     ):
         self.n_neighbors = n_neighbors
         self.kernel_type = kernel_type
+        self.gp_alpha = float(gp_alpha)
+        self.gp_n_restarts_optimizer = int(gp_n_restarts_optimizer)
         self.use_sparse_gp = use_sparse_gp
         self.n_inducing = n_inducing
         self.input_type = input_type
@@ -507,7 +515,11 @@ class SpaGAPA:
                     n_inducing=self.n_inducing,
                 )
             else:
-                base_imputer = GPImputer(kernel_type=self.kernel_type)
+                base_imputer = GPImputer(
+                    kernel_type=self.kernel_type,
+                    alpha=self.gp_alpha,
+                    n_restarts_optimizer=self.gp_n_restarts_optimizer,
+                )
 
             training_mask = self._training_mask(apa_matrix_values)
             self.imputer_ = base_imputer.fit_batch(

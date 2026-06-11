@@ -78,6 +78,10 @@ _opt_uncertainty = click.option(
 @_opt_coords
 @click.option('--dataset', '-d', default=None,
               help='Path to saved APADataset (.h5ad).')
+@click.option('--gp-alpha', default=1e-10, show_default=True,
+              help='Exact GP noise/regularization parameter.')
+@click.option('--gp-n-restarts', default=1, show_default=True,
+              help='Number of GP hyperparameter optimizer restarts.')
 @click.option('--expression-matrix', default=None,
               help='Optional expression matrix CSV/TSV/NPY for BioML.')
 @click.option('--expression-orientation', default='genes_by_spots', show_default=True,
@@ -135,6 +139,8 @@ def run(**kwargs):
     spa = SpaGAPA(
         n_neighbors=kwargs['n_neighbors'],
         kernel_type=kwargs['kernel'],
+        gp_alpha=kwargs['gp_alpha'],
+        gp_n_restarts_optimizer=kwargs['gp_n_restarts'],
         use_sparse_gp=kwargs['sparse'],
         use_bioml=kwargs['enable_bioml'],
         bioml_rank=kwargs['bioml_rank'],

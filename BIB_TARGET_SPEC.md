@@ -2973,6 +2973,175 @@ conda run -n spagapa pytest tests/integration/test_pipeline_toy.py tests/unit/te
 
 ---
 
+### 23.19 外部真实数据验证 runner 已接入
+
+根据 `metaAPA.pdf` 和 `stAPAminer.pdf` 的实验范式，已新增外部真实数据验证入口：
+
+```text
+scripts/run_external_bioml_validation.py
+```
+
+这个 runner 的定位不是替代 formal mask benchmark，而是把 spaGAPA-BioML 放进更接近竞品论文的真实数据验证框架中：
+
+#### stAPAminer 对齐的实验维度
+
+stAPAminer 原文主要强调：
+
+- KNN expression imputation 后 layer/domain separation 改善。
+- 与解剖 layer label 的一致性，包括 ARI、NMI、purity、Jaccard。
+- 内部聚类指标，包括 DBI、Calinski-Harabasz、Silhouette、Dunn。
+- 同一 layer 内 spot-spot APA profile correlation。
+- SVAPA、DEAPA、LSAPA 及下游生物学解释。
+- replicate 中 spatial APA genes 的一致性。
+
+当前 runner 已覆盖：
+
+```text
+external_validation_summary.csv
+within_layer_correlation.csv
+replicate_spatial_gene_overlap.csv
+downstream/*_svapa_genes.csv
+downstream/*_lsapa_domain_markers.csv
+downstream/*_deapa_layer_pairwise.csv
+figures/layer_separation_metrics.png
+figures/internal_clustering_metrics.png
+figures/within_layer_correlation.png
+figures/spatial_apa_gene_counts.png
+method_domain_maps.png
+```
+
+当前可比较方法：
+
+```text
+raw
+stapaminer_original_imputed
+stapaminer_knn_expression
+spagapa_gp
+spagapa_bioml
+```
+
+其中：
+
+- `stapaminer_original_imputed` 使用本地 stAPAminer 示例输出的 imputed RUD。
+- `stapaminer_knn_expression` 是 faithful reimplementation，用 expression KNN 做 APA imputation。
+- `spagapa_bioml` 通过正式 `SpaGAPA(..., use_bioml=True)` pipeline 跑通，不再依赖 benchmark-only 分支。
+
+#### metaAPA 对齐的实验维度
+
+metaAPA 原文主要评估上游 poly(A) site caller integration：
+
+- Sierra / polyApipe / SCAPE 多 caller site consensus。
+- position threshold 和 expression similarity clustering。
+- high-confidence sites overlap / Jaccard。
+- PAS、cleavage site、CSTF GU-rich、CF I UGUA 等 sequence feature。
+- Nanopore / Space Ranger 等外部支持。
+
+这与 spaGAPA-BioML 的下游 imputation/domain recovery 不是同一层级，因此当前 runner 不把 metaAPA 当作 layer ARI baseline，而是输出 site-level readiness checklist：
+
+```text
+site_level_validation_checklist.json
+figures/ref_package_experiment_coverage.png
+```
+
+当前 MOB 数据状态：
+
+```text
+apa_sites_available = true
+site_counts_available = true
+multi_caller_site_tables_available = false
+sequence_context_available = false
+long_read_support_available = false
+metaapa_ready = false
+```
+
+解释：
+
+- 当前数据已具备真实 APA site/count 输入。
+- 尚未具备 metaAPA 风格多 caller consensus 和 sequence-context validation。
+- 后续若要完整对齐 metaAPA，需要补 Sierra / polyApipe / SCAPE outputs、genome FASTA/GTF、PAS annotation 或 long-read support。
+
+#### MOB pilot 结果
+
+运行命令：
+
+```bash
+conda run -n spagapa python scripts/run_external_bioml_validation.py \
+  --dataset-dir spaGAPA/data/processed/stapaminer_mob \
+  --output-dir spaGAPA/benchmark_results/real/external_bioml_validation_v1 \
+  --n-genes 60 \
+  --min-observed-spots 110 \
+  --methods raw,stapaminer_original_imputed,stapaminer_knn_expression,spagapa_gp,spagapa_bioml \
+  --gp-alpha 1e-3 \
+  --gp-n-restarts 1 \
+  --bioml-domain-method spectral \
+  --bioml-max-iter 20 \
+  --bioml-blend 0.1
+```
+
+输出目录：
+
+```text
+spaGAPA/benchmark_results/real/external_bioml_validation_v1/
+```
+
+关键结果：
+
+```text
+method                         layer_ari  layer_nmi  purity   pairwise_jaccard
+raw                            0.101117   0.151950   0.4000   0.224058
+stapaminer_original_imputed    0.109863   0.160847   0.4077   0.227414
+stapaminer_knn_expression      0.073448   0.109605   0.3731   0.199467
+spagapa_gp                     0.100875   0.160667   0.3808   0.218274
+spagapa_bioml                  0.388330   0.509298   0.6385   0.360246
+```
+
+下游 gene count：
+
+```text
+method                         n_svapa  n_lsapa  n_deapa
+raw                            9        4        6
+stapaminer_original_imputed    9        4        5
+stapaminer_knn_expression      9        10       6
+spagapa_gp                     9        8        8
+spagapa_bioml                  9        9        8
+```
+
+解释：
+
+1. `spagapa_bioml` 在真实 MOB pilot 中对 biological consistency 的提升非常明显：
+   - layer ARI 从 stAPAminer-original 的 `0.110` 提升到 `0.388`
+   - layer NMI 从 `0.161` 提升到 `0.509`
+   - purity 从 `0.408` 提升到 `0.638`
+
+2. `within-layer correlation` 在当前 60 high-coverage genes 中区分度不大：
+   - raw、stAPAminer、GP、BioML 的 median within-layer Pearson 都接近 `0.948`
+   - 这说明当前 gene subset 覆盖度过高，该指标在 pilot 中接近饱和
+   - 后续应增加 low-coverage / dropout-heavy gene subset，才能更公平测试 imputation 对 layer 内 correlation 的贡献
+
+3. internal clustering metrics 需要谨慎解读：
+   - BioML 的 layer agreement 明显最强
+   - 但 DBI/Silhouette 并不总是更优，因为 BioML 的目标是对齐真实 biological layer，而不是优化无监督紧致球形 cluster
+   - 论文中应把 external biological labels 作为主指标，internal metrics 作为辅助诊断
+
+4. 这次结果进一步支持：
+
+```text
+spaGAPA-BioML is no longer a speculative branch.
+It is now the main candidate route for BIB-level biological consistency.
+```
+
+#### 当前仍缺的外部验证
+
+BIB 投稿前仍需继续扩展：
+
+1. 至少 1 个 stAPAminer 以外的 spatial APA / poly(A) dataset。
+2. 至少 1 个 brain/CBS 或 MOB replicate，用于 replicate overlap。
+3. 更大 gene set，包括 high-coverage、low-coverage 和 dropout-heavy 分层。
+4. metaAPA-style upstream site validation：多 caller consensus、PAS/sequence feature、long-read 或 Space Ranger support。
+5. Biological story：从 `spagapa_bioml` 的 SVAPA/LSAPA/DEAPA 结果中挑出 layer-specific APA remodeling gene，做图和文献解释。
+
+---
+
 ## 24. 最终目标陈述
 
 spaGAPA 面向 BIB 的最终目标不是证明“我们写了一个包”，而是证明：
