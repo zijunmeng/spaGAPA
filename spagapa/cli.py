@@ -89,6 +89,15 @@ _opt_analysis_preset = click.option(
               help='Exact GP noise/regularization parameter.')
 @click.option('--gp-n-restarts', default=1, show_default=True,
               help='Number of GP hyperparameter optimizer restarts.')
+@click.option('--sparse-gp-inducing-method', default='kmeans', show_default=True,
+              type=click.Choice(['kmeans', 'random', 'grid']),
+              help='Sparse GP inducing point selection method.')
+@click.option('--sparse-gp-length-scale', default='1.0', show_default=True,
+              help="Sparse GP RBF length scale, or 'auto' for coordinate-adaptive.")
+@click.option('--sparse-gp-length-scale-multiplier', default=1.0, show_default=True,
+              help='Multiplier for --sparse-gp-length-scale auto.')
+@click.option('--sparse-gp-noise-level', default=0.1, show_default=True,
+              help='Sparse GP observation noise level.')
 @click.option('--expression-matrix', default=None,
               help='Optional expression matrix CSV/TSV/NPY for BioML.')
 @click.option('--expression-orientation', default='genes_by_spots', show_default=True,
@@ -166,6 +175,14 @@ def run(**kwargs):
         gp_alpha=kwargs['gp_alpha'],
         gp_n_restarts_optimizer=kwargs['gp_n_restarts'],
         use_sparse_gp=kwargs['sparse'],
+        sparse_gp_inducing_method=kwargs['sparse_gp_inducing_method'],
+        sparse_gp_length_scale=(
+            kwargs['sparse_gp_length_scale']
+            if str(kwargs['sparse_gp_length_scale']).strip().lower() in {'auto', 'none'}
+            else float(kwargs['sparse_gp_length_scale'])
+        ),
+        sparse_gp_length_scale_multiplier=kwargs['sparse_gp_length_scale_multiplier'],
+        sparse_gp_noise_level=kwargs['sparse_gp_noise_level'],
         analysis_preset=kwargs['analysis_preset'],
         use_bioml=kwargs['enable_bioml'],
         bioml_rank=kwargs['bioml_rank'],

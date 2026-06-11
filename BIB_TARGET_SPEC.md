@@ -3784,6 +3784,148 @@ analysis_preset.json
 3. 单独报告 `highres_fast` 的 runtime/domain recovery，同时明确其不提供 GP
    uncertainty。
 
+### 23.24 pipeline-level pseudo-highres smoke benchmark 已完成
+
+为验证 `highres_accuracy / highres_fast` 不只是 benchmark runner 的脚本特供，
+已新增 pipeline-level smoke runner：
+
+```text
+scripts/run_pipeline_highres_smoke.py
+tests/integration/test_pipeline_highres_smoke.py
+```
+
+这个 smoke runner 直接复用：
+
+- `run_high_resolution_simulation.py` 的 pseudo-bin 生成
+- 同一套 layer metrics / RMSE / parent RMSE 计算
+- 同一份 prepared MOB 数据输入
+
+并在同一模拟数据上比较：
+
+```text
+runner_highres_bioml
+pipeline_highres_accuracy
+pipeline_highres_fast
+```
+
+#### 额外对齐的 sparse GP 参数
+
+在第一次 smoke 中，pipeline 的 `highres_accuracy` 虽然 layer ARI/NMI 已与 runner
+一致，但 RMSE 仍偏高。原因已定位：
+
+- runner 的 sparse GP 使用：
+  - `length_scale = auto`
+  - `noise_level = 0.08`
+- 主 pipeline 原先仍在用：
+  - `length_scale = 1.0`
+  - `noise_level = 0.1`
+
+因此已把以下 sparse-GP 参数接入主 pipeline / CLI：
+
+```text
+sparse_gp_inducing_method
+sparse_gp_length_scale
+sparse_gp_length_scale_multiplier
+sparse_gp_noise_level
+```
+
+同时在 `highres_accuracy` preset 下，当用户未手动覆盖时，自动采用：
+
+```text
+length_scale = auto
+noise_level = 0.08
+```
+
+并把 `length_scale_effective` 写入：
+
+```text
+results["analysis_preset"]["sparse_gp"]
+analysis_preset.json
+pipeline_highres_smoke_metadata.json
+```
+
+#### 真实 MOB pseudo-highres smoke 结果
+
+输出目录：
+
+```text
+spaGAPA/benchmark_results/real/pipeline_highres_smoke_v1/
+```
+
+主要文件：
+
+```text
+pipeline_highres_smoke_summary.csv
+pipeline_highres_smoke_metadata.json
+decision_summary.json
+figures/pipeline_highres_smoke_summary.png
+figures/pipeline_highres_smoke_domains.png
+```
+
+当前使用的小规模 smoke 配置：
+
+```text
+dataset = stapaminer_mob
+n_genes = 24
+n_parent_spots = 80
+subbins_per_spot = 4
+n_bins = 320
+observed_fraction = 0.3328
+```
+
+结果：
+
+```text
+runner_highres_bioml
+  rmse_holdout = 0.081141
+  parent_rmse  = 0.063690
+  layer_ari    = 0.300424
+  layer_nmi    = 0.428003
+  runtime_s    = 2.4783
+
+pipeline_highres_accuracy
+  rmse_holdout = 0.081141
+  parent_rmse  = 0.063690
+  layer_ari    = 0.300424
+  layer_nmi    = 0.428003
+  runtime_s    = 2.2321
+
+pipeline_highres_fast
+  rmse_holdout = 0.082186
+  parent_rmse  = 0.061571
+  layer_ari    = 0.300424
+  layer_nmi    = 0.428003
+  runtime_s    = 0.1879
+```
+
+#### 结论
+
+1. `pipeline_highres_accuracy` 已与 `runner_highres_bioml` **完全对齐**：
+   - `rmse_delta_vs_runner = 0`
+   - `parent_rmse_delta_vs_runner = 0`
+   - `layer_ari_delta_vs_runner = 0`
+   - `layer_nmi_delta_vs_runner = 0`
+2. 这说明高分辨率主线已经不再是 benchmark-only 路线，而是正式进入了
+   spaGAPA 主 pipeline。
+3. `pipeline_highres_fast` 在这个 smoke 中：
+   - biological consistency 与 runner 完全一致
+   - runtime 约为 runner 的 `0.0758x`
+   - RMSE 仅增加 `0.001045`
+4. 因此 `highres_fast` 已经具备一个清晰而有用的定位：
+   - 高分辨率快速 domain discovery / exploratory analysis
+   - 当用户首先关注 layer/domain recovery 而非 uncertainty-aware value modeling
+     时，是非常有竞争力的模式。
+
+#### 下一步 high-resolution 主线优先事项
+
+1. 把这个 smoke runner 扩展成 multi-seed smoke suite，避免单 seed 偶然性。
+2. 在更多 `subbins_per_spot` 条件下检验：
+   - `2x`
+   - `4x`
+   - `8x`
+3. 用主 pipeline 而不是独立 runner 继续跑 high-resolution formal suite。
+4. 寻找并验证外部真实 high-resolution spatial transcriptomics 数据。
+
 ---
 
 ## 24. 最终目标陈述

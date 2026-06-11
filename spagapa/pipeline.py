@@ -37,6 +37,7 @@ from spagapa.analysis import (
     SpatialPatternAnalyzer,
     GPTrendDetector,
 )
+from sklearn.neighbors import NearestNeighbors
 
 
 class SpaGAPA:
@@ -97,6 +98,10 @@ class SpaGAPA:
         gp_n_restarts_optimizer: int = 1,
         use_sparse_gp: bool = False,
         n_inducing: int = 100,
+        sparse_gp_inducing_method: str = 'kmeans',
+        sparse_gp_length_scale: Union[str, float] = 1.0,
+        sparse_gp_length_scale_multiplier: float = 1.0,
+        sparse_gp_noise_level: float = 0.1,
         input_type: str = 'apa_index',
         min_spatial_support: float = 0.3,
         min_read_count: int = 10,
@@ -129,6 +134,10 @@ class SpaGAPA:
         self.gp_n_restarts_optimizer = int(gp_n_restarts_optimizer)
         self.use_sparse_gp = use_sparse_gp
         self.n_inducing = n_inducing
+        self.sparse_gp_inducing_method = sparse_gp_inducing_method
+        self.sparse_gp_length_scale = sparse_gp_length_scale
+        self.sparse_gp_length_scale_multiplier = float(sparse_gp_length_scale_multiplier)
+        self.sparse_gp_noise_level = float(sparse_gp_noise_level)
         self.input_type = input_type
         self.min_spatial_support = min_spatial_support
         self.min_read_count = min_read_count
@@ -164,6 +173,7 @@ class SpaGAPA:
         self.resolved_analysis_preset_: Optional[str] = None
         self.dataset_profile_: Optional[Dict] = None
         self._active_bioml_params: Dict = {}
+        self._active_sparse_gp_params: Dict = {}
 
     def _log(self, msg: str):
         if self.verbose:
@@ -218,6 +228,21 @@ class SpaGAPA:
             params['highres_gp_blend'] = 0.0
         return params
 
+    def _active_sparse_gp_defaults(self, resolved_preset: str) -> Dict:
+        """Resolve run-local sparse-GP defaults without mutating the estimator."""
+        params = {
+            'inducing_method': self.sparse_gp_inducing_method,
+            'length_scale': self.sparse_gp_length_scale,
+            'length_scale_multiplier': self.sparse_gp_length_scale_multiplier,
+            'noise_level': self.sparse_gp_noise_level,
+        }
+        if resolved_preset == 'highres_accuracy':
+            if self.sparse_gp_length_scale == 1.0:
+                params['length_scale'] = 'auto'
+            if abs(self.sparse_gp_noise_level - 0.1) < 1e-12:
+                params['noise_level'] = 0.08
+        return params
+
     def _resolve_run_options(
         self,
         impute: bool,
@@ -233,6 +258,7 @@ class SpaGAPA:
         )
         resolved_preset = resolve_analysis_preset(self.analysis_preset, profile)
         self._active_bioml_params = self._active_bioml_defaults(resolved_preset)
+        self._active_sparse_gp_params = self._active_sparse_gp_defaults(resolved_preset)
 
         use_bioml_this_run = self.use_bioml if use_bioml is None else bool(use_bioml)
         if use_bioml_this_run is None:
@@ -252,6 +278,13 @@ class SpaGAPA:
             'profile': profile.to_dict(),
             'impute': bool(impute_this_run),
             'use_sparse_gp': bool(use_sparse_gp_this_run),
+            'sparse_gp': {
+                'n_inducing': int(self.n_inducing),
+                'inducing_method': self._active_sparse_gp_params['inducing_method'],
+                'length_scale': self._active_sparse_gp_params['length_scale'],
+                'length_scale_multiplier': self._active_sparse_gp_params['length_scale_multiplier'],
+                'noise_level': self._active_sparse_gp_params['noise_level'],
+            },
             'use_bioml': bool(use_bioml_this_run),
             'bioml_weights': {
                 'spatial': self._active_bioml_params['spatial_weight'],
@@ -288,6 +321,45 @@ class SpaGAPA:
         if self.input_type == 'apa_index':
             return finite
         return finite & (values > 0)
+
+    def _resolve_sparse_gp_length_scale(
+        self,
+        coords: np.ndarray,
+        value: Optional[Union[str, float]] = None,
+        multiplier: Optional[float] = None,
+    ) -> float:
+        """Resolve sparse-GP length scale, optionally from local coordinate density."""
+        if value is None:
+            value = self.sparse_gp_length_scale
+        if multiplier is None:
+            multiplier = self.sparse_gp_length_scale_multiplier
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized not in {'auto', 'none'}:
+                raise ValueError("sparse_gp_length_scale must be positive, 'auto', or 'none'")
+            if coords.shape[0] < 2:
+                return 1.0
+            k = min(max(2, int(self.bioml_n_neighbors)), coords.shape[0])
+            nn = NearestNeighbors(n_neighbors=k)
+            nn.fit(coords)
+            distances, _ = nn.kneighbors(coords)
+            positive = distances[:, -1]
+            positive = positive[np.isfinite(positive) & (positive > 0)]
+            if positive.size:
+                base = float(np.median(positive))
+            else:
+                nn2 = NearestNeighbors(n_neighbors=2)
+                nn2.fit(coords)
+                nearest, _ = nn2.kneighbors(coords)
+                vals = nearest[:, 1]
+                vals = vals[np.isfinite(vals) & (vals > 0)]
+                base = float(np.median(vals)) if vals.size else 1.0
+            return max(1e-6, base * float(multiplier))
+
+        length_scale = float(value)
+        if length_scale <= 0:
+            raise ValueError("sparse_gp_length_scale must be positive, 'auto', or 'none'")
+        return length_scale
 
     def _load_expression_matrix(
         self,
@@ -735,9 +807,24 @@ class SpaGAPA:
             apa_matrix_values = self.dataset_.raw_counts  # (n_genes, n_spots)
 
             if use_sparse_gp_this_run:
+                sparse_params = self._active_sparse_gp_params or {
+                    'inducing_method': self.sparse_gp_inducing_method,
+                    'length_scale': self.sparse_gp_length_scale,
+                    'length_scale_multiplier': self.sparse_gp_length_scale_multiplier,
+                    'noise_level': self.sparse_gp_noise_level,
+                }
+                length_scale = self._resolve_sparse_gp_length_scale(
+                    coords,
+                    value=sparse_params['length_scale'],
+                    multiplier=sparse_params['length_scale_multiplier'],
+                )
                 base_imputer = SparseGPImputer(
                     n_inducing=self.n_inducing,
+                    inducing_method=sparse_params['inducing_method'],
+                    length_scale=length_scale,
+                    noise_level=sparse_params['noise_level'],
                 )
+                self.results_['analysis_preset']['sparse_gp']['length_scale_effective'] = float(length_scale)
             else:
                 base_imputer = GPImputer(
                     kernel_type=self.kernel_type,
