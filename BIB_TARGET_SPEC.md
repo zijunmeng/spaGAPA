@@ -3142,6 +3142,125 @@ BIB 投稿前仍需继续扩展：
 
 ---
 
+### 23.20 High-resolution spaGAPA MVP 已启动
+
+为了让 spaGAPA 不只停留在普通 Visium/ST 规模，已新增高分辨率路线 spec 和 pseudo-bin benchmark：
+
+```text
+HIGH_RESOLUTION_SPAGAPA_SPEC.md
+scripts/run_high_resolution_simulation.py
+tests/integration/test_high_resolution_simulation.py
+```
+
+高分辨率路线的核心定位：
+
+```text
+No deep learning. No GPU. Use sparse/block GP + multi-view BioML.
+```
+
+#### 为什么要做 high-resolution benchmark
+
+高分辨率空间转录组会带来两个相反因素：
+
+- 空间结构更细：microdomain、boundary、local niche 更有价值。
+- APA 更稀疏：单个 bin 的 reads 更少，APA usage 更 noisy/missing。
+
+因此 BIB 叙事不能只证明 spaGAPA 能在 260 spots MOB 上跑通，还需要证明它具备向 high-resolution spatial APA 扩展的路线。
+
+#### MVP 设计
+
+当前不先下载大型 high-resolution 数据，而是从真实 MOB APA matrix 生成 pseudo high-resolution bins：
+
+```text
+parent spot
+  -> multiple pseudo-bins
+  -> coordinate jitter
+  -> inherited layer label
+  -> local APA micro-noise
+  -> capture loss + dropout + measurement noise
+```
+
+比较方法：
+
+```text
+raw
+expression_knn
+sparse_gp
+sparse_bioml
+```
+
+输出：
+
+```text
+spaGAPA/benchmark_results/real/highres_simulation_v1/
+highres_results_summary.csv
+figures/highres_method_comparison.png
+figures/highres_scaling.png
+figures/highres_domain_maps_last.png
+```
+
+#### MOB pseudo-high-resolution pilot
+
+运行规模：
+
+```text
+n_genes = 40
+n_parent_spots = 80
+subbins_per_spot = 4
+n_bins = 320
+observed_fraction = 0.335781
+capture_rate = 0.45
+dropout_rate = 0.25
+```
+
+结果：
+
+```text
+method          rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+raw             0.093836      0.070466     0.013281   0.028330   0.000
+expression_knn  0.110820      0.086591     0.317657   0.337631   0.012
+sparse_gp       0.149626      0.120304     0.121348   0.199846   2.735
+sparse_bioml    0.139902      0.112524     0.060880   0.167263   3.174
+```
+
+Uncertainty:
+
+```text
+sparse_gp uncertainty_error_spearman = 0.226988
+sparse_bioml uncertainty_error_spearman = 0.217176
+```
+
+解释：
+
+1. 高分辨率 benchmark pipeline 已经打通，可生成 reproducible tables 和 figures。
+2. Sparse GP uncertainty 与误差正相关，说明 uncertainty 仍有信息。
+3. `sparse_bioml` 在 RMSE 上优于 `sparse_gp`，但当前没有超过 `expression_knn` 的 layer recovery。
+4. `raw` 在 RMSE 上最强，主要因为当前 pseudo-bin truth 由 parent-smoothed APA 生成，而且选的是较高覆盖 genes，gene-mean filling 是强 baseline。
+5. 因此当前 high-resolution 结果应被解读为：
+
+```text
+High-resolution route is now technically feasible, but not yet a claimed win.
+```
+
+这对 BIB 反而是有价值的开发信号：普通 MOB 外部验证中 BioML 已经很强，但 high-resolution 稀疏场景下还需要专门的 multiscale tuning，而不是直接套用普通分辨率默认参数。
+
+#### 下一步 high-resolution 优先事项
+
+1. 做 high-resolution graph-weight sweep：
+   - spatial-heavy
+   - expression-heavy
+   - APA-light/no-APA
+   - uncertainty-weighted APA graph
+2. 加入 low-coverage/dropout-heavy gene strata。
+3. 加入 2x / 4x / 8x pseudo-bin scaling curve。
+4. 比较 sparse GP、block GP、local GP。
+5. 加 aggregation-aware model selection：
+   - pseudo-bin 层面不要只看局部拟合
+   - 聚合回 parent spot 后也要保留 tissue/layer structure
+6. 寻找真正保留 3-prime/poly(A) 信息的 high-resolution spatial transcriptomics 数据集。
+
+---
+
 ## 24. 最终目标陈述
 
 spaGAPA 面向 BIB 的最终目标不是证明“我们写了一个包”，而是证明：
