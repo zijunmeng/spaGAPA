@@ -3187,6 +3187,7 @@ raw
 expression_knn
 sparse_gp
 sparse_bioml
+highres_bioml
 ```
 
 输出：
@@ -3213,7 +3214,7 @@ capture_rate = 0.45
 dropout_rate = 0.25
 ```
 
-结果：
+初始直接迁移结果：
 
 ```text
 method          rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
@@ -3234,30 +3235,107 @@ sparse_bioml uncertainty_error_spearman = 0.217176
 
 1. 高分辨率 benchmark pipeline 已经打通，可生成 reproducible tables 和 figures。
 2. Sparse GP uncertainty 与误差正相关，说明 uncertainty 仍有信息。
-3. `sparse_bioml` 在 RMSE 上优于 `sparse_gp`，但当前没有超过 `expression_knn` 的 layer recovery。
+3. 直接把普通分辨率 `sparse_bioml` 迁移到 pseudo-bin high-resolution 场景会失败：
+   - APA view 太 noisy，参与 domain graph 后会拖垮 layer recovery。
+   - KMeans-on-matrix 不足以恢复 high-resolution layer structure。
+   - 必须把 APA value recovery 和 biological domain graph recovery 解耦。
 4. `raw` 在 RMSE 上最强，主要因为当前 pseudo-bin truth 由 parent-smoothed APA 生成，而且选的是较高覆盖 genes，gene-mean filling 是强 baseline。
-5. 因此当前 high-resolution 结果应被解读为：
+5. 因此 v1 high-resolution 结果应被解读为：
 
 ```text
-High-resolution route is now technically feasible, but not yet a claimed win.
+High-resolution direct sparse BioML is technically feasible, but not the right
+default high-resolution model.
 ```
 
-这对 BIB 反而是有价值的开发信号：普通 MOB 外部验证中 BioML 已经很强，但 high-resolution 稀疏场景下还需要专门的 multiscale tuning，而不是直接套用普通分辨率默认参数。
+这对 BIB 反而是有价值的开发信号：普通 MOB 外部验证中 BioML 已经很强，但 high-resolution 稀疏场景下需要专门的 decoupled / multiscale tuning，而不是直接套用普通分辨率默认参数。
+
+#### Highres BioML v2：已把垫底问题修正为主线候选
+
+为解决 v1 暴露的问题，已在 `scripts/run_high_resolution_simulation.py` 中新增：
+
+```text
+highres_bioml
+```
+
+算法定义：
+
+```text
+Value recovery:
+  observed high-res APA
+    -> raw gene-mean fill
+    -> sparse GP
+    -> 70% raw + 30% sparse GP conservative value blend
+
+Domain recovery:
+  coordinates + expression embedding + expression-KNN APA proxy
+    -> 20% spatial + 60% expression + 20% APA-proxy fused graph
+    -> spectral domain detector
+```
+
+核心原则：
+
+```text
+Do not let noisy high-resolution sparse-GP APA distances define tissue domains.
+Use sparse GP for value recovery and uncertainty, but use spatial/expression
+structure plus a light APA proxy for biological domain recovery.
+```
+
+正式输出：
+
+```text
+spaGAPA/benchmark_results/real/highres_simulation_v2/
+```
+
+v2 seed 42 结果：
+
+```text
+method          rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+raw             0.093836      0.070466     0.013281   0.028330   0.000
+expression_knn  0.110820      0.086591     0.317657   0.337631   0.009
+sparse_gp       0.123681      0.100235     0.105452   0.197039   3.232
+sparse_bioml    0.117031      0.094870     0.120553   0.231166   3.698
+highres_bioml   0.091409      0.071571     0.353396   0.475051   3.457
+```
+
+额外 seed 复现：
+
+```text
+seed 43: highres_bioml rmse_holdout = 0.087739, layer_ari = 0.375770
+seed 44: highres_bioml rmse_holdout = 0.088438, layer_ari = 0.356022
+```
+
+当前判断：
+
+1. `sparse_bioml` 垫底不是路线终结，而是 high-resolution graph construction 错配。
+2. `highres_bioml` 已经在当前 pseudo-high-resolution MOB benchmark 中同时超过：
+   - raw 的 pseudo-bin RMSE
+   - expression-KNN 的 layer ARI/NMI
+   - sparse GP / direct sparse BioML 的综合表现
+3. 这条线符合用户约束：
+   - 只用传统机器学习
+   - CPU-only
+   - 运行时间仍在秒级
+4. 现在 high-resolution spaGAPA 的主线候选应从 `sparse_bioml` 切换为 `highres_bioml`。
 
 #### 下一步 high-resolution 优先事项
 
-1. 做 high-resolution graph-weight sweep：
+1. 对 `highres_bioml` 做 formal benchmark：
+   - 多 seeds
+   - 2x / 4x / 8x pseudo-bins
+   - low-coverage genes
+   - dropout-heavy scenarios
+   - runtime / memory scaling
+2. 做 high-resolution graph-weight sweep：
    - spatial-heavy
    - expression-heavy
-   - APA-light/no-APA
-   - uncertainty-weighted APA graph
-2. 加入 low-coverage/dropout-heavy gene strata。
-3. 加入 2x / 4x / 8x pseudo-bin scaling curve。
-4. 比较 sparse GP、block GP、local GP。
-5. 加 aggregation-aware model selection：
+   - expression-KNN APA proxy
+   - no-APA domain graph
+   - sparse-GP APA view as negative control
+3. 比较 sparse GP、block GP、local GP。
+4. 加 aggregation-aware model selection：
    - pseudo-bin 层面不要只看局部拟合
    - 聚合回 parent spot 后也要保留 tissue/layer structure
-6. 寻找真正保留 3-prime/poly(A) 信息的 high-resolution spatial transcriptomics 数据集。
+5. 寻找真正保留 3-prime/poly(A) 信息的 high-resolution spatial transcriptomics 数据集。
 
 ---
 

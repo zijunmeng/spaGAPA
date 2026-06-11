@@ -71,18 +71,25 @@ def test_high_resolution_simulation_runner_toy(tmp_path):
         "--subbins-per-spot",
         "2",
         "--methods",
-        "raw,expression_knn",
+        "raw,expression_knn,highres_bioml",
         "--capture-rate",
         "0.6",
         "--dropout-rate",
         "0.1",
+        "--sparse-n-inducing",
+        "8",
+        "--bioml-n-neighbors",
+        "4",
     ]
     result = subprocess.run(cmd, cwd=".", capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr + result.stdout
 
     summary = pd.read_csv(output_dir / "highres_results_summary.csv")
-    assert set(summary["method"]) == {"raw", "expression_knn"}
+    assert set(summary["method"]) == {"raw", "expression_knn", "highres_bioml"}
     assert int(summary["n_bins"].iloc[0]) == 32
+    highres_row = summary[summary["method"] == "highres_bioml"].iloc[0]
+    assert highres_row["domain_source"] == "model_domain"
+    assert np.isfinite(highres_row["rmse_holdout"])
     assert (output_dir / "figures" / "highres_method_comparison.png").exists()
     assert (output_dir / "figures" / "highres_scaling.png").exists()
     assert (output_dir / "figures" / "highres_domain_maps_last.png").exists()

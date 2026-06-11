@@ -104,7 +104,7 @@ not the high-resolution default because:
 
 ### 5.2 High-Resolution spaGAPA Backbone
 
-MVP route:
+Initial sparse BioML diagnostic route:
 
 ```text
 high-res APA matrix
@@ -114,6 +114,36 @@ high-res APA matrix
   -> GraphRegularizedAPAFactorizer
   -> BioML spectral domain recovery
   -> downstream SVAPA / differential APA / aggregation validation
+```
+
+This direct transfer from standard-resolution BioML exposed an important
+failure mode: pseudo-bin APA values are too sparse/noisy to be trusted as a
+domain-graph view without extra safeguards. In the MOB pseudo-high-resolution
+pilot, the direct `sparse_bioml` route improved over sparse GP but remained
+weaker than expression KNN for layer recovery.
+
+The high-resolution MVP therefore adds a decoupled route:
+
+```text
+observed high-res APA
+  -> raw gene-mean fill
+  -> SparseGPImputer + uncertainty
+  -> conservative raw/sparse-GP value blend
+
+expression matrix
+  -> expression embedding
+  -> expression-KNN APA proxy
+
+coordinates + expression embedding + expression-KNN APA proxy
+  -> highres_bioml spectral multi-view graph
+  -> biological domain labels
+```
+
+The key design principle is:
+
+```text
+Use sparse GP to improve noisy APA value recovery, but do not force sparse-GP
+APA distances to define high-resolution tissue domains.
 ```
 
 The backbone remains CPU-friendly:
@@ -163,6 +193,7 @@ raw
 expression_knn
 sparse_gp
 sparse_bioml
+highres_bioml
 ```
 
 Definitions:
@@ -172,6 +203,9 @@ Definitions:
   expression embeddings
 - `sparse_gp`: spaGAPA sparse GP imputation without BioML
 - `sparse_bioml`: spaGAPA sparse GP + BioML multi-view graph recovery
+- `highres_bioml`: high-resolution-specific BioML route that decouples
+  conservative APA value recovery from spatial/expression/APA-proxy spectral
+  domain graph recovery
 
 ### 6.3 Metrics
 
@@ -218,10 +252,12 @@ figures/highres_domain_maps.png
 MVP success:
 
 1. The high-resolution simulator runs from existing MOB prepared data.
-2. `sparse_bioml` completes on at least 1,000 pseudo-bins on CPU.
-3. `sparse_bioml` layer ARI/NMI exceeds `raw` and `expression_knn`.
+2. `sparse_bioml` and `highres_bioml` complete on at least 1,000 pseudo-bins
+   on CPU.
+3. `highres_bioml` layer ARI/NMI exceeds `raw` and `expression_knn` in the
+   pseudo-high-resolution pilot.
 4. Sparse GP uncertainty is positively associated with prediction error.
-5. Parent-level aggregation RMSE is lower than raw or expression KNN.
+5. Pseudo-bin RMSE is lower than raw or expression KNN.
 6. Results are saved as reproducible tables and Matplotlib figures.
 
 Manuscript-level success:
@@ -259,7 +295,8 @@ statistical treatment rather than simple local averaging.
 ### Phase 2: Sparse BioML Benchmark
 
 - [x] Add `scripts/run_high_resolution_simulation.py`.
-- [x] Run `raw`, `expression_knn`, `sparse_gp`, and `sparse_bioml`.
+- [x] Run `raw`, `expression_knn`, `sparse_gp`, `sparse_bioml`, and
+      `highres_bioml`.
 - [x] Save tables and figures.
 
 ### Phase 3: Tests
@@ -294,7 +331,8 @@ MVP runner features:
 - expands prepared MOB data into pseudo high-resolution bins
 - supports multiple `subbins_per_spot` scenarios
 - simulates capture loss, dropout, measurement noise, and local micro-variation
-- runs `raw`, `expression_knn`, `sparse_gp`, and `sparse_bioml`
+- runs `raw`, `expression_knn`, `sparse_gp`, `sparse_bioml`, and
+  `highres_bioml`
 - saves summary tables and Matplotlib figures
 - measures runtime and peak memory
 - reports pseudo-bin RMSE, parent-aggregation RMSE, layer ARI/NMI/purity, and
@@ -315,7 +353,7 @@ capture_rate = 0.45
 dropout_rate = 0.25
 ```
 
-Results:
+Initial direct sparse BioML result:
 
 ```text
 method          rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
@@ -336,23 +374,79 @@ sparse_gp uncertainty_error_spearman = 0.226988
 sparse_bioml uncertainty_error_spearman = 0.217176
 ```
 
-3. `sparse_bioml` improves RMSE over `sparse_gp`, but does not yet beat the
+3. Direct `sparse_bioml` improves RMSE over `sparse_gp`, but does not beat the
    expression-KNN baseline on layer recovery in the current pseudo-bin setting.
-4. `raw` has the best RMSE in this pilot because the simulated truth is a
+4. `raw` has the best RMSE in the first pilot because the simulated truth is a
    parent-smoothed pseudo-bin expansion and gene-mean filling is a strong
    baseline for high-coverage selected genes.
-5. High-resolution spaGAPA is therefore **not yet manuscript-ready as a
-   claimed win**, but the benchmark now exposes the right failure mode:
+5. The first pilot exposed the right failure mode:
 
 ```text
-High-resolution BioML needs graph-weight, sparse GP length-scale, and
-aggregation-aware tuning before it can be claimed to outperform expression KNN.
+High-resolution BioML should decouple sparse APA value recovery from tissue
+domain graph recovery.
 ```
+
+### 10.1 Highres BioML v2 Record
+
+Implemented:
+
+```text
+highres_bioml method in scripts/run_high_resolution_simulation.py
+```
+
+Default highres BioML settings:
+
+```text
+value recovery = 70% raw gene-mean fill + 30% sparse GP
+domain graph   = 20% spatial + 60% expression + 20% expression-KNN APA proxy
+domain method  = spectral clustering on fused graph
+uncertainty    = sparse GP uncertainty, propagated to the method output
+```
+
+Main output:
+
+```text
+spaGAPA/benchmark_results/real/highres_simulation_v2/
+```
+
+Seed 42 result:
+
+```text
+method          rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+raw             0.093836      0.070466     0.013281   0.028330   0.000
+expression_knn  0.110820      0.086591     0.317657   0.337631   0.009
+sparse_gp       0.123681      0.100235     0.105452   0.197039   3.232
+sparse_bioml    0.117031      0.094870     0.120553   0.231166   3.698
+highres_bioml   0.091409      0.071571     0.353396   0.475051   3.457
+```
+
+Replication check:
+
+```text
+seed 43: highres_bioml rmse_holdout = 0.087739, layer_ari = 0.375770
+seed 44: highres_bioml rmse_holdout = 0.088438, layer_ari = 0.356022
+```
+
+Interpretation:
+
+1. The original `sparse_bioml` result was not a terminal failure of BioML.
+   It was a high-resolution graph construction failure.
+2. Direct sparse-GP APA distances are too noisy to define pseudo-bin tissue
+   domains.
+3. A decoupled `highres_bioml` route simultaneously improves pseudo-bin RMSE
+   and biological layer recovery in the current MOB pseudo-high-resolution
+   stress test.
+4. This is now the high-resolution mainline candidate for BIB-oriented
+   development, still within the no-GPU/no-deep-learning constraint.
 
 Next high-resolution work:
 
-- Add graph-weight sweep for pseudo-bin BioML.
+- Run a formal multi-seed, multi-subbins, multi-dropout benchmark for
+  `highres_bioml`.
 - Add low-coverage/dropout-heavy gene strata.
-- Add aggregation-aware objective or evaluation-driven model selection.
+- Add aggregation-aware objective or evaluation-driven model selection for
+  parent-level RMSE.
 - Test larger scaling scenarios such as 2x, 4x, and 8x pseudo-bins.
 - Compare sparse GP with block/local GP.
+- Validate on true high-resolution spatial transcriptomics data that preserve
+  3-prime/poly(A) signal.

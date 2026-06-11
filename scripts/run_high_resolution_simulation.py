@@ -10,6 +10,7 @@ CPU-friendly methods:
 * expression KNN imputation
 * sparse GP imputation
 * sparse GP + BioML multi-view graph recovery
+* high-resolution BioML with decoupled value recovery and domain graph recovery
 
 The benchmark is intended as a scalability and robustness test. It should not
 be presented as a substitute for true high-resolution spatial APA data.
@@ -59,12 +60,13 @@ from run_external_bioml_validation import (
 )
 
 
-METHOD_ORDER = ["raw", "expression_knn", "sparse_gp", "sparse_bioml"]
+METHOD_ORDER = ["raw", "expression_knn", "sparse_gp", "sparse_bioml", "highres_bioml"]
 METHOD_COLORS = {
     "raw": "#7f8c8d",
     "expression_knn": "#9b59b6",
     "sparse_gp": "#e74c3c",
     "sparse_bioml": "#d35400",
+    "highres_bioml": "#1f9d8a",
 }
 
 
@@ -103,7 +105,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--methods",
-        default="raw,expression_knn,sparse_gp,sparse_bioml",
+        default="raw,expression_knn,sparse_gp,sparse_bioml,highres_bioml",
         help="Comma-separated methods.",
     )
     parser.add_argument("--layer-column", default="layer")
@@ -137,6 +139,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bioml-spatial-weight", type=float, default=0.4)
     parser.add_argument("--bioml-expression-weight", type=float, default=0.4)
     parser.add_argument("--bioml-apa-weight", type=float, default=0.2)
+    parser.add_argument(
+        "--highres-bioml-gp-blend",
+        type=float,
+        default=0.3,
+        help=(
+            "Sparse-GP contribution for highres_bioml value recovery. "
+            "The remaining weight uses raw gene-mean fill."
+        ),
+    )
+    parser.add_argument("--highres-bioml-spatial-weight", type=float, default=0.2)
+    parser.add_argument("--highres-bioml-expression-weight", type=float, default=0.6)
+    parser.add_argument("--highres-bioml-apa-weight", type=float, default=0.2)
+    parser.add_argument(
+        "--highres-bioml-apa-source",
+        default="expression_knn",
+        choices=["expression_knn", "raw", "sparse_gp", "none"],
+        help="APA view used only for highres_bioml domain graph construction.",
+    )
     return parser.parse_args()
 
 
@@ -447,6 +467,67 @@ def sparse_bioml_refine(
     return refined, domains
 
 
+def highres_bioml_recover(
+    observed: np.ndarray,
+    coords: np.ndarray,
+    expression_embedding: np.ndarray,
+    raw_matrix: np.ndarray,
+    expression_knn_matrix: np.ndarray | None,
+    sparse_gp: np.ndarray,
+    uncertainty: np.ndarray | None,
+    n_domains: int,
+    args: argparse.Namespace,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    High-resolution-specific BioML recovery.
+
+    High-resolution pseudo-bins expose a different failure mode from standard
+    Visium-like spots: APA values are sparse enough that an APA KNN graph built
+    directly from sparse-GP values can damage tissue-domain recovery. This
+    variant therefore decouples value recovery from domain recovery:
+
+    * value recovery uses a conservative raw + sparse-GP blend
+    * domain recovery uses a spatial/expression graph with an optional light
+      APA view, defaulting to expression-KNN APA rather than sparse-GP APA
+    """
+    mask = np.isfinite(observed)
+    gp_blend = float(np.clip(args.highres_bioml_gp_blend, 0.0, 1.0))
+    recovered = (1.0 - gp_blend) * raw_matrix + gp_blend * sparse_gp
+    recovered[mask] = observed[mask]
+    recovered = np.clip(recovered, 0.0, 1.0)
+
+    apa_source = args.highres_bioml_apa_source
+    apa_matrix = None
+    apa_uncertainty = None
+    if apa_source == "expression_knn":
+        if expression_knn_matrix is None:
+            raise ValueError("highres_bioml requires expression_knn_matrix when APA source is expression_knn")
+        apa_matrix = expression_knn_matrix
+    elif apa_source == "raw":
+        apa_matrix = raw_matrix
+    elif apa_source == "sparse_gp":
+        apa_matrix = sparse_gp
+        apa_uncertainty = uncertainty
+
+    graph = MultiViewGraphBuilder(
+        n_neighbors=args.bioml_n_neighbors,
+        spatial_weight=args.highres_bioml_spatial_weight,
+        expression_weight=args.highres_bioml_expression_weight,
+        apa_weight=args.highres_bioml_apa_weight if apa_matrix is not None else 0.0,
+    ).build(
+        coords,
+        expression_embedding=expression_embedding,
+        apa_matrix=apa_matrix,
+        uncertainty=apa_uncertainty,
+    )
+    domains = BioMLDomainDetector(
+        method="spectral",
+        n_domains=n_domains,
+        random_state=42,
+    ).fit_predict(graph=graph.fused)
+    return recovered, domains
+
+
 def aggregate_to_parent(matrix: np.ndarray, parent_index: np.ndarray, n_parent: int) -> np.ndarray:
     out = np.zeros((matrix.shape[0], n_parent), dtype=float)
     counts = np.zeros(n_parent, dtype=float)
@@ -499,32 +580,51 @@ def run_methods(sim: dict[str, Any], args: argparse.Namespace, n_domains: int) -
     selected_methods = [method.strip() for method in args.methods.split(",") if method.strip()]
     observed = sim["observed"]
     outputs: dict[str, dict[str, Any]] = {}
+    raw_matrix = None
+    expression_knn_matrix = None
+    expression_knn_runtime_s = 0.0
+    expression_knn_peak_rss_mb = 0.0
+
+    if "raw" in selected_methods or "highres_bioml" in selected_methods:
+        raw_matrix = fill_missing_by_gene_mean(observed)
 
     if "raw" in selected_methods:
         outputs["raw"] = {
-            "matrix": fill_missing_by_gene_mean(observed),
+            "matrix": raw_matrix,
             "uncertainty": None,
             "domains": None,
             "runtime_s": 0.0,
             "peak_rss_mb": 0.0,
         }
 
-    if "expression_knn" in selected_methods:
-        matrix, runtime_s, peak_rss_mb = track_runtime_memory(
+    needs_expression_knn = (
+        "expression_knn" in selected_methods
+        or (
+            "highres_bioml" in selected_methods
+            and args.highres_bioml_apa_source == "expression_knn"
+        )
+    )
+    if needs_expression_knn:
+        expression_knn_matrix, expression_knn_runtime_s, expression_knn_peak_rss_mb = track_runtime_memory(
             lambda: expression_knn_impute(observed, sim["expression_embedding"], args.knn_k)
         )
+    if "expression_knn" in selected_methods:
         outputs["expression_knn"] = {
-            "matrix": matrix,
+            "matrix": expression_knn_matrix,
             "uncertainty": None,
             "domains": None,
-            "runtime_s": runtime_s,
-            "peak_rss_mb": peak_rss_mb,
+            "runtime_s": expression_knn_runtime_s,
+            "peak_rss_mb": expression_knn_peak_rss_mb,
         }
 
     sparse_result = None
     sparse_runtime_s = 0.0
     sparse_peak_rss_mb = 0.0
-    if "sparse_gp" in selected_methods or "sparse_bioml" in selected_methods:
+    if (
+        "sparse_gp" in selected_methods
+        or "sparse_bioml" in selected_methods
+        or "highres_bioml" in selected_methods
+    ):
         sparse_result, sparse_runtime_s, sparse_peak_rss_mb = track_runtime_memory(
             lambda: sparse_gp_impute(observed, sim["coords"], args)
         )
@@ -561,6 +661,39 @@ def run_methods(sim: dict[str, Any], args: argparse.Namespace, n_domains: int) -
             "domains": domains,
             "runtime_s": sparse_runtime_s + runtime_s,
             "peak_rss_mb": max(sparse_peak_rss_mb, peak_rss_mb),
+        }
+
+    if "highres_bioml" in selected_methods:
+        if sparse_result is None:
+            sparse_result, sparse_runtime_s, sparse_peak_rss_mb = track_runtime_memory(
+                lambda: sparse_gp_impute(observed, sim["coords"], args)
+            )
+        if raw_matrix is None:
+            raw_matrix = fill_missing_by_gene_mean(observed)
+        if args.highres_bioml_apa_source == "expression_knn" and expression_knn_matrix is None:
+            expression_knn_matrix, expression_knn_runtime_s, expression_knn_peak_rss_mb = track_runtime_memory(
+                lambda: expression_knn_impute(observed, sim["expression_embedding"], args.knn_k)
+            )
+        sparse_matrix, sparse_uncertainty = sparse_result
+        (matrix, domains), runtime_s, peak_rss_mb = track_runtime_memory(
+            lambda: highres_bioml_recover(
+                observed,
+                sim["coords"],
+                sim["expression_embedding"],
+                raw_matrix,
+                expression_knn_matrix,
+                sparse_matrix,
+                sparse_uncertainty,
+                n_domains,
+                args,
+            )
+        )
+        outputs["highres_bioml"] = {
+            "matrix": matrix,
+            "uncertainty": sparse_uncertainty,
+            "domains": domains,
+            "runtime_s": sparse_runtime_s + expression_knn_runtime_s + runtime_s,
+            "peak_rss_mb": max(sparse_peak_rss_mb, expression_knn_peak_rss_mb, peak_rss_mb),
         }
 
     return outputs
