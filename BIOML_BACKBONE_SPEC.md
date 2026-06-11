@@ -348,6 +348,8 @@ Status:
 - [x] `run_stapaminer_mob_benchmark.py` supports `--include-bioml`
 - [x] KMeans and spectral BioML domain detectors are supported
 - [x] Targeted pilot completed on MOB subset
+- [x] Formal benchmark suite completed with multiple masks and seeds
+- [x] Graph weight sweep completed
 
 Pilot result summary:
 
@@ -372,16 +374,94 @@ Interpretation:
 
 - KMeans on BioML factors improves layer ARI but does not beat stAPAminer-like.
 - Spectral clustering on the fused multi-view graph strongly improves layer ARI/NMI while preserving the GP backbone's RMSE/calibration.
-- Next step is a formal multi-seed benchmark and graph-weight sweep.
+
+Formal suite:
+
+```text
+Output:
+  spaGAPA/benchmark_results/real/bioml_formal_suite_v1/
+
+Formal balanced:
+  n_genes = 60
+  seeds = 42,43
+  masks = random, spatial_block_large, ring_sector, layer_aware, low_coverage
+  graph weights = spatial 0.4, expression 0.4, APA 0.2
+```
+
+Formal result summary:
+
+```text
+spagapa_bioml:
+  rmse = 0.116868
+  layer_ari = 0.375996
+  layer_nmi = 0.492093
+  uncertainty_error_spearman = 0.810176
+  runtime_s = 15.612
+  peak_rss_mb = 615.939
+
+spagapa_gp:
+  rmse = 0.116897
+  layer_ari = 0.077308
+  layer_nmi = 0.117774
+  uncertainty_error_spearman = 0.810283
+
+stAPAminer-like:
+  rmse = 0.127412
+  layer_ari = 0.101109
+  layer_nmi = 0.134307
+```
+
+Mask-level highlight:
+
+```text
+layer_aware:
+  spagapa_bioml layer_ari = 0.444642
+  stAPAminer-like layer_ari = 0.230029
+  spagapa_gp layer_ari = 0.098998
+```
+
+Weight sweep summary:
+
+```text
+Best BioML RMSE:
+  no_apa_s050_e050_a000
+  rmse = 0.115065
+  layer_ari = 0.320739
+
+Best BioML layer ARI:
+  expression_heavy_s020_e060_a020
+  rmse = 0.115123
+  layer_ari = 0.387113
+  layer_nmi = 0.490091
+```
+
+Interpretation:
+
+- BioML now beats the formal benchmark on both RMSE and biological consistency.
+- Spectral multi-view graph recovery solves the previous layer consistency bottleneck better than single-gene expression-aware GP variants.
+- Expression-heavy graph weighting improves biological consistency, while no-APA graph weighting gives the best RMSE, suggesting APA-view similarity should be revisited before locking the final default.
 
 ### Phase 7.5: Decision criteria
 
 BioML 进入主线候选需要满足：
 
-1. RMSE 不显著劣于 `spatial GP`
-2. layer ARI/NMI 超过 `stapaminer_knn_expression`
-3. calibration 继承或接近 GP backbone
-4. runtime 在 CPU 上可接受
+1. [x] RMSE 不显著劣于 `spatial GP`
+2. [x] layer ARI/NMI 超过 `stapaminer_knn_expression`
+3. [x] calibration 继承或接近 GP backbone
+4. [x] runtime 在 CPU 上可接受
+
+Current decision:
+
+```text
+BioML is promoted from research branch to main-line candidate.
+```
+
+Remaining validation before manuscript freeze:
+
+- Expand to larger gene sets and additional random seeds.
+- Validate on at least one external spatial transcriptomics dataset.
+- Add boundary consistency / marker ordering / SVAPA ranking stability metrics.
+- Choose final graph weights through cross-dataset evidence rather than MOB-only tuning.
 
 ---
 

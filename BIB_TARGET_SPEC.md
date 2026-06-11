@@ -2743,6 +2743,173 @@ stAPAminer-like layer ARI:
 
 ---
 
+### 23.17 BioML formal benchmark v1 已完成
+
+BioML formal suite 已跑完，runner 未再发现后台 benchmark 进程，suite-level summary、decision JSON 和图表均已生成。
+
+结果目录：
+
+```text
+spaGAPA/benchmark_results/real/bioml_formal_suite_v1/
+```
+
+关键输出：
+
+```text
+bioml_formal_overall_summary.csv
+bioml_formal_mask_summary.csv
+decision_summary.json
+figures/bioml_formal_method_comparison.png
+figures/bioml_graph_weight_sweep.png
+```
+
+Formal balanced 设置：
+
+- `n_genes = 60`
+- `seeds = 42,43`
+- `mask_types = random, spatial_block_large, ring_sector, layer_aware, low_coverage`
+- `spatial_weight = 0.4`
+- `expression_weight = 0.4`
+- `apa_weight = 0.2`
+- `bioml_domain_method = spectral`
+
+#### Overall formal benchmark
+
+```text
+spagapa_bioml:
+  rmse = 0.116868
+  mae = 0.067549
+  pearson = 0.962168
+  r2 = 0.925756
+  layer_ari = 0.375996
+  layer_nmi = 0.492093
+  uncertainty_error_spearman = 0.810176
+  uncertainty_coverage_68 = 0.865732
+  uncertainty_coverage_95 = 0.960293
+  runtime_s = 15.612
+  peak_rss_mb = 615.939
+
+spagapa_gp:
+  rmse = 0.116897
+  layer_ari = 0.077308
+  layer_nmi = 0.117774
+  uncertainty_error_spearman = 0.810283
+
+stAPAminer-like expression KNN:
+  rmse = 0.127412
+  layer_ari = 0.101109
+  layer_nmi = 0.134307
+```
+
+这组结果非常关键：
+
+1. **RMSE 首次在 formal benchmark 中保持并微弱超过 spatial GP**
+   - `spagapa_bioml rmse = 0.116868`
+   - `spagapa_gp rmse = 0.116897`
+
+2. **biological consistency 显著超过既往 expression-KNN 类 baseline**
+   - `spagapa_bioml layer_ari = 0.376`
+   - `stAPAminer-like layer_ari = 0.101`
+   - `spagapa_gp layer_ari = 0.077`
+
+3. **uncertainty calibration 基本完整继承 GP backbone**
+   - `spagapa_bioml uncertainty_error_spearman = 0.810176`
+   - `spagapa_gp uncertainty_error_spearman = 0.810283`
+
+4. **CPU runtime 可接受**
+   - formal average runtime 约 `15.6 s`
+   - peak RSS 约 `616 MB`
+
+#### Mask-level biological consistency
+
+BioML 在全部 5 种 mask 下均明显提高 layer recovery，尤其是之前最担心的 `layer_aware`：
+
+```text
+layer_aware:
+  spagapa_bioml layer_ari = 0.444642
+  stAPAminer-like layer_ari = 0.230029
+  spagapa_gp layer_ari = 0.098998
+
+random:
+  spagapa_bioml layer_ari = 0.383458
+  stAPAminer-like layer_ari = 0.066869
+  spagapa_gp layer_ari = 0.125774
+
+ring_sector:
+  spagapa_bioml layer_ari = 0.383751
+  stAPAminer-like layer_ari = 0.071885
+  spagapa_gp layer_ari = 0.020854
+
+spatial_block_large:
+  spagapa_bioml layer_ari = 0.334394
+  stAPAminer-like layer_ari = 0.044043
+  spagapa_gp layer_ari = 0.075919
+
+low_coverage:
+  spagapa_bioml layer_ari = 0.333734
+  stAPAminer-like layer_ari = 0.092720
+  spagapa_gp layer_ari = 0.064996
+```
+
+这说明之前 `single-gene expression-aware GP` 没能解决的 layer-structured biological manifold recovery，已经被 `GP + multi-view graph + spectral BioML` 路线明显改善。
+
+#### Graph weight sweep
+
+Graph weight sweep 结果显示：
+
+```text
+Best BioML by RMSE:
+  no_apa_s050_e050_a000
+  spatial_weight = 0.5
+  expression_weight = 0.5
+  apa_weight = 0.0
+  rmse = 0.115065
+  layer_ari = 0.320739
+
+Best BioML by layer ARI:
+  expression_heavy_s020_e060_a020
+  spatial_weight = 0.2
+  expression_weight = 0.6
+  apa_weight = 0.2
+  rmse = 0.115123
+  layer_ari = 0.387113
+  layer_nmi = 0.490091
+```
+
+解释：
+
+- `expression_heavy` 是 biological consistency 最优候选。
+- `no_apa` 是 RMSE 最优候选，提示当前 APA-view graph 可能仍含噪，需要后续改进 APA similarity 或 feature selection。
+- `balanced_s040_e040_a020` 是 formal 主线的稳健默认配置，因为它在 RMSE、calibration 和 biological consistency 之间最均衡。
+
+#### 当前决策
+
+BioML backbone 已经通过当前阶段的主线候选标准：
+
+1. RMSE 不劣于 spatial GP。
+2. layer ARI/NMI 明显超过 stAPAminer-like expression baseline。
+3. uncertainty calibration 基本继承 GP。
+4. CPU runtime/memory 可接受。
+
+因此下一步不应再把主要精力放在 single-gene expression-aware GP 微调上，而应把 BIB 主线正式升级为：
+
+```text
+spaGAPA = uncertainty-calibrated spatial GP imputation
+       + CPU-friendly multi-view graph BioML domain recovery
+       + uncertainty-aware downstream APA analysis
+```
+
+需要注意的是，这仍然只是 MOB formal v1。BIB 投稿前仍需：
+
+- 扩展到更大 gene set 和更多 seeds。
+- 加入外部 spatial transcriptomics 数据集。
+- 引入 APA/domain boundary consistency、marker ordering、SVAPA ranking stability。
+- 对 BioML graph weight 进行更系统的 cross-dataset 默认参数选择。
+
+但从目前结果看，spaGAPA 已经从“有希望追平既往包”推进到“在核心维度上具备全面超越证据”的阶段。
+
+---
+
 ## 24. 最终目标陈述
 
 spaGAPA 面向 BIB 的最终目标不是证明“我们写了一个包”，而是证明：
