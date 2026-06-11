@@ -473,7 +473,7 @@ def highres_bioml_recover(
     expression_embedding: np.ndarray,
     raw_matrix: np.ndarray,
     expression_knn_matrix: np.ndarray | None,
-    sparse_gp: np.ndarray,
+    sparse_gp: np.ndarray | None,
     uncertainty: np.ndarray | None,
     n_domains: int,
     args: argparse.Namespace,
@@ -492,7 +492,9 @@ def highres_bioml_recover(
     """
     mask = np.isfinite(observed)
     gp_blend = float(np.clip(args.highres_bioml_gp_blend, 0.0, 1.0))
-    recovered = (1.0 - gp_blend) * raw_matrix + gp_blend * sparse_gp
+    if gp_blend > 0 and sparse_gp is None:
+        raise ValueError("highres_bioml requires sparse GP when gp_blend is positive")
+    recovered = raw_matrix.copy() if gp_blend == 0 else (1.0 - gp_blend) * raw_matrix + gp_blend * sparse_gp
     recovered[mask] = observed[mask]
     recovered = np.clip(recovered, 0.0, 1.0)
 
@@ -506,6 +508,8 @@ def highres_bioml_recover(
     elif apa_source == "raw":
         apa_matrix = raw_matrix
     elif apa_source == "sparse_gp":
+        if sparse_gp is None:
+            raise ValueError("highres_bioml requires sparse GP when APA source is sparse_gp")
         apa_matrix = sparse_gp
         apa_uncertainty = uncertainty
 
@@ -526,6 +530,12 @@ def highres_bioml_recover(
         random_state=42,
     ).fit_predict(graph=graph.fused)
     return recovered, domains
+
+
+def highres_bioml_needs_sparse_gp(args: argparse.Namespace) -> bool:
+    """Return whether highres_bioml needs sparse GP for values or graph features."""
+    gp_blend = float(np.clip(args.highres_bioml_gp_blend, 0.0, 1.0))
+    return gp_blend > 0 or args.highres_bioml_apa_source == "sparse_gp"
 
 
 def aggregate_to_parent(matrix: np.ndarray, parent_index: np.ndarray, n_parent: int) -> np.ndarray:
@@ -620,10 +630,14 @@ def run_methods(sim: dict[str, Any], args: argparse.Namespace, n_domains: int) -
     sparse_result = None
     sparse_runtime_s = 0.0
     sparse_peak_rss_mb = 0.0
+    needs_sparse_for_highres = (
+        "highres_bioml" in selected_methods
+        and highres_bioml_needs_sparse_gp(args)
+    )
     if (
         "sparse_gp" in selected_methods
         or "sparse_bioml" in selected_methods
-        or "highres_bioml" in selected_methods
+        or needs_sparse_for_highres
     ):
         sparse_result, sparse_runtime_s, sparse_peak_rss_mb = track_runtime_memory(
             lambda: sparse_gp_impute(observed, sim["coords"], args)
@@ -664,17 +678,24 @@ def run_methods(sim: dict[str, Any], args: argparse.Namespace, n_domains: int) -
         }
 
     if "highres_bioml" in selected_methods:
-        if sparse_result is None:
+        highres_sparse_runtime_s = 0.0
+        highres_sparse_peak_rss_mb = 0.0
+        sparse_matrix = None
+        sparse_uncertainty = None
+        if highres_bioml_needs_sparse_gp(args) and sparse_result is None:
             sparse_result, sparse_runtime_s, sparse_peak_rss_mb = track_runtime_memory(
                 lambda: sparse_gp_impute(observed, sim["coords"], args)
             )
+        if sparse_result is not None and highres_bioml_needs_sparse_gp(args):
+            sparse_matrix, sparse_uncertainty = sparse_result
+            highres_sparse_runtime_s = sparse_runtime_s
+            highres_sparse_peak_rss_mb = sparse_peak_rss_mb
         if raw_matrix is None:
             raw_matrix = fill_missing_by_gene_mean(observed)
         if args.highres_bioml_apa_source == "expression_knn" and expression_knn_matrix is None:
             expression_knn_matrix, expression_knn_runtime_s, expression_knn_peak_rss_mb = track_runtime_memory(
                 lambda: expression_knn_impute(observed, sim["expression_embedding"], args.knn_k)
             )
-        sparse_matrix, sparse_uncertainty = sparse_result
         (matrix, domains), runtime_s, peak_rss_mb = track_runtime_memory(
             lambda: highres_bioml_recover(
                 observed,
@@ -692,8 +713,8 @@ def run_methods(sim: dict[str, Any], args: argparse.Namespace, n_domains: int) -
             "matrix": matrix,
             "uncertainty": sparse_uncertainty,
             "domains": domains,
-            "runtime_s": sparse_runtime_s + expression_knn_runtime_s + runtime_s,
-            "peak_rss_mb": max(sparse_peak_rss_mb, expression_knn_peak_rss_mb, peak_rss_mb),
+            "runtime_s": highres_sparse_runtime_s + expression_knn_runtime_s + runtime_s,
+            "peak_rss_mb": max(highres_sparse_peak_rss_mb, expression_knn_peak_rss_mb, peak_rss_mb),
         }
 
     return outputs

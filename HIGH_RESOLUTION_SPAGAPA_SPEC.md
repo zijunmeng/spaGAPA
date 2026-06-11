@@ -439,14 +439,130 @@ Interpretation:
 4. This is now the high-resolution mainline candidate for BIB-oriented
    development, still within the no-GPU/no-deep-learning constraint.
 
+### 10.2 Highres BioML Formal Suite v1
+
+Implemented:
+
+```text
+scripts/run_highres_bioml_suite.py
+```
+
+Suite output:
+
+```text
+spaGAPA/benchmark_results/real/highres_bioml_suite_v1/
+```
+
+Generated figures:
+
+```text
+figures/highres_formal_method_comparison.png
+figures/highres_bioml_scaling.png
+figures/highres_dropout_stress.png
+figures/highres_graph_weight_sweep.png
+figures/highres_gp_blend_sweep.png
+```
+
+Formal multi-seed mean:
+
+```text
+method          rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+raw             0.093485      0.069798     0.025283   0.048144   0.000
+expression_knn  0.107669      0.084110     0.243685   0.288447   0.010
+sparse_gp       0.113715      0.091988     0.110783   0.183307   3.415
+sparse_bioml    0.108105      0.087425     0.165666   0.265937   3.961
+highres_bioml   0.089195      0.069369     0.361730   0.470109   3.629
+```
+
+Formal interpretation:
+
+1. `highres_bioml` is best by pseudo-bin RMSE and best by layer ARI/NMI.
+2. Relative to `expression_knn`, `highres_bioml` improves:
+   - `rmse_holdout` by `-0.018474`
+   - `layer_ari` by `+0.118044`
+   - `layer_nmi` by `+0.181662`
+3. Relative to `raw`, `highres_bioml` improves:
+   - `rmse_holdout` by `-0.004290`
+   - `layer_ari` by `+0.336447`
+4. The current cost is runtime:
+   - accuracy mode is still seconds-scale because sparse GP is used
+   - expression KNN remains much faster
+
+Graph-weight sweep:
+
+```text
+best graph config = default_s020_e060_a020_exprknn
+spatial weight    = 0.20
+expression weight = 0.60
+APA proxy weight  = 0.20
+APA proxy source  = expression_knn
+```
+
+This supports the current design decision:
+
+```text
+High-resolution biological domain recovery should be expression-led,
+spatially constrained, and only lightly APA-informed.
+```
+
+GP-blend sweep:
+
+```text
+config        rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+gp_blend_0.0  0.093836      0.070466     0.353396   0.475051   0.384
+gp_blend_0.1  0.091799      0.069911     0.353396   0.475051   3.655
+gp_blend_0.3  0.091409      0.071571     0.353396   0.475051   3.793
+gp_blend_0.5  0.095903      0.076670     0.353396   0.475051   3.464
+```
+
+This creates two useful high-resolution modes:
+
+1. **Accuracy mode**
+   - `highres_bioml_gp_blend = 0.3`
+   - best pseudo-bin RMSE in the current suite
+   - preserves strong layer ARI/NMI
+   - retains sparse GP uncertainty
+2. **Fast-domain mode**
+   - `highres_bioml_gp_blend = 0.0`
+   - skips sparse GP when APA source is not `sparse_gp`
+   - runtime drops to about `0.38s` in the current 320-bin pilot
+   - keeps the same layer ARI/NMI as accuracy mode
+   - gives raw-level RMSE and no sparse GP uncertainty
+
+Runtime optimization implemented:
+
+```text
+If highres_bioml_gp_blend == 0 and highres_bioml_apa_source != sparse_gp,
+skip sparse GP completely.
+```
+
+Additional optimization implemented:
+
+```text
+BioML spectral domain detector now keeps sparse affinity matrices sparse
+instead of converting them to dense arrays.
+```
+
+Scaling observation:
+
+```text
+n_bins  rmse_holdout  layer_ari  runtime_s
+160     0.090433      0.307608   3.199
+320     0.091409      0.353396   3.878
+640     0.087832      0.104927   4.137
+```
+
+The 8x pseudo-bin scenario exposes a remaining risk: layer ARI drops at larger
+subbin expansion. This likely reflects over-fragmented inherited labels and/or
+graph-neighborhood settings that are too local for larger pseudo-bin clouds.
+
 Next high-resolution work:
 
-- Run a formal multi-seed, multi-subbins, multi-dropout benchmark for
-  `highres_bioml`.
+- Add adaptive graph-neighbor selection for 8x and larger pseudo-bin settings.
 - Add low-coverage/dropout-heavy gene strata.
 - Add aggregation-aware objective or evaluation-driven model selection for
   parent-level RMSE.
-- Test larger scaling scenarios such as 2x, 4x, and 8x pseudo-bins.
-- Compare sparse GP with block/local GP.
+- Compare sparse GP, block/local GP, and fast-domain mode on larger pseudo-bin
+  scenarios.
 - Validate on true high-resolution spatial transcriptomics data that preserve
   3-prime/poly(A) signal.

@@ -3317,6 +3317,119 @@ seed 44: highres_bioml rmse_holdout = 0.088438, layer_ari = 0.356022
    - 运行时间仍在秒级
 4. 现在 high-resolution spaGAPA 的主线候选应从 `sparse_bioml` 切换为 `highres_bioml`。
 
+#### Highres BioML formal suite v1：稳定性与速度取舍
+
+已新增：
+
+```text
+scripts/run_highres_bioml_suite.py
+```
+
+输出：
+
+```text
+spaGAPA/benchmark_results/real/highres_bioml_suite_v1/
+highres_bioml_suite_results_long.csv
+highres_bioml_suite_overall_summary.csv
+decision_summary.json
+figures/highres_formal_method_comparison.png
+figures/highres_bioml_scaling.png
+figures/highres_dropout_stress.png
+figures/highres_graph_weight_sweep.png
+figures/highres_gp_blend_sweep.png
+```
+
+formal multi-seed 平均结果：
+
+```text
+method          rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+raw             0.093485      0.069798     0.025283   0.048144   0.000
+expression_knn  0.107669      0.084110     0.243685   0.288447   0.010
+sparse_gp       0.113715      0.091988     0.110783   0.183307   3.415
+sparse_bioml    0.108105      0.087425     0.165666   0.265937   3.961
+highres_bioml   0.089195      0.069369     0.361730   0.470109   3.629
+```
+
+关键结论：
+
+1. `highres_bioml` 在 formal multi-seed mean 中同时是：
+   - best RMSE
+   - best layer ARI
+   - best layer NMI
+2. 相比 `expression_knn`：
+   - `rmse_holdout` 改善 `-0.018474`
+   - `layer_ari` 提升 `+0.118044`
+   - `layer_nmi` 提升 `+0.181662`
+3. 相比 `raw`：
+   - `rmse_holdout` 改善 `-0.004290`
+   - `layer_ari` 提升 `+0.336447`
+4. 这说明 `highres_bioml` 的领先不只是 seed 42 的小幅偶然提升，而是在当前 pseudo-high-resolution formal suite 中具有稳定优势。
+
+graph-weight sweep 结果支持当前默认：
+
+```text
+best graph config = default_s020_e060_a020_exprknn
+spatial weight    = 0.20
+expression weight = 0.60
+APA proxy weight  = 0.20
+APA proxy source  = expression_knn
+```
+
+这说明 high-resolution domain recovery 的最佳方向不是 APA-heavy，而是：
+
+```text
+expression-led + spatially constrained + lightly APA-informed
+```
+
+GP-blend sweep 暴露出一个重要速度/精度取舍：
+
+```text
+config        rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+gp_blend_0.0  0.093836      0.070466     0.353396   0.475051   0.384
+gp_blend_0.1  0.091799      0.069911     0.353396   0.475051   3.655
+gp_blend_0.3  0.091409      0.071571     0.353396   0.475051   3.793
+gp_blend_0.5  0.095903      0.076670     0.353396   0.475051   3.464
+```
+
+因此 high-resolution spaGAPA 现在可以定义两个运行模式：
+
+1. **accuracy mode**
+   - `highres_bioml_gp_blend = 0.3`
+   - 最好 pseudo-bin RMSE
+   - 保留 sparse GP uncertainty
+   - runtime 为秒级
+2. **fast-domain mode**
+   - `highres_bioml_gp_blend = 0.0`
+   - 当 APA source 不是 `sparse_gp` 时跳过 sparse GP
+   - runtime 从约 3.5 秒降到约 0.38 秒
+   - layer ARI/NMI 与 accuracy mode 相同
+   - 代价是 RMSE 回到 raw-level，且没有 sparse GP uncertainty
+
+已完成 runtime 优化：
+
+```text
+If highres_bioml_gp_blend == 0 and highres_bioml_apa_source != sparse_gp,
+skip sparse GP completely.
+```
+
+同时 BioML spectral domain detector 已改为保留 sparse graph affinity，不再强制 dense 化。
+
+scaling 风险：
+
+```text
+n_bins  rmse_holdout  layer_ari  runtime_s
+160     0.090433      0.307608   3.199
+320     0.091409      0.353396   3.878
+640     0.087832      0.104927   4.137
+```
+
+8x pseudo-bin 的 layer ARI 明显下降，说明下一步重点不是继续堆模型复杂度，而是要做：
+
+- adaptive graph neighborhood
+- multiscale / parent-aware graph
+- aggregation-aware model selection
+- true high-resolution dataset validation
+
 #### 下一步 high-resolution 优先事项
 
 1. 对 `highres_bioml` 做 formal benchmark：

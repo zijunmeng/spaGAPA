@@ -54,7 +54,7 @@ class BioMLDomainDetector:
         if self.method == "spectral":
             if graph is None:
                 raise ValueError("graph is required for spectral domain detection")
-            affinity = graph.toarray() if sparse.issparse(graph) else np.asarray(graph, dtype=float)
+            affinity = graph.tocsr() if sparse.issparse(graph) else np.asarray(graph, dtype=float)
             if affinity.ndim != 2 or affinity.shape[0] != affinity.shape[1]:
                 raise ValueError("graph must be a square affinity matrix")
             clustering = SpectralClustering(
