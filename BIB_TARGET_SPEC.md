@@ -3167,6 +3167,59 @@ No deep learning. No GPU. Use sparse/block GP + multi-view BioML.
 
 因此 BIB 叙事不能只证明 spaGAPA 能在 260 spots MOB 上跑通，还需要证明它具备向 high-resolution spatial APA 扩展的路线。
 
+#### 用户界面设计：内部复杂，外部简单
+
+虽然内部实现会包含 GP、Sparse GP、BioML、highres BioML、fast-domain mode 等组件，但用户-facing 设计不应该让用户直接面对一堆方法名。
+
+推荐最终 CLI/API 暴露方式：
+
+```text
+analysis_preset = auto | standard | highres_accuracy | highres_fast
+```
+
+含义：
+
+1. `auto`
+   - 默认选项。
+   - 根据 spot/bin 数量、APA matrix observed fraction、每 spot/bin 覆盖度、坐标密度自动选择。
+   - 普通 Visium/ST 数据走 `standard`。
+   - 高分辨率/高稀疏数据走 `highres_accuracy`，并可提示 fast-domain 选项。
+2. `standard`
+   - 低/中分辨率空间转录组默认。
+   - 使用常规 spaGAPA GP/BioML 路线。
+   - 更强调 APA-specific spatial modeling 和 uncertainty-aware downstream。
+3. `highres_accuracy`
+   - 高分辨率或 pseudo-bin 数据默认推荐。
+   - 使用 `highres_bioml` accuracy mode。
+   - 保留 sparse GP value recovery 和 uncertainty。
+4. `highres_fast`
+   - 高分辨率快速 domain discovery / exploratory analysis。
+   - 使用 `highres_bioml_gp_blend = 0`，跳过 sparse GP。
+   - layer/domain recovery 快，但 APA value RMSE 和 uncertainty 不作为主要卖点。
+
+高分辨率数据的实用定义不应只看平台名，而应看数据形态：
+
+```text
+high-resolution-like =
+  many spatial bins/spots
+  + small bin/cell-level capture
+  + sparse APA observations
+  + local pseudo-bin / bead / grid structure
+```
+
+初步 automatic rule：
+
+```text
+if n_spots_or_bins >= 1000
+   or observed_fraction < 0.35
+   or median_observed_APA_per_bin is low:
+       use highres preset
+else:
+       use standard preset
+```
+
+这条规则后续必须在真实 high-resolution datasets 上校准。当前 benchmark 中 `320-640 pseudo-bins` 已经表现出 high-resolution-like 稀疏性，因此可作为开发压力测试，但不能替代真实平台验证。
+
 #### MVP 设计
 
 当前不先下载大型 high-resolution 数据，而是从真实 MOB APA matrix 生成 pseudo high-resolution bins：
@@ -3414,7 +3467,7 @@ skip sparse GP completely.
 
 同时 BioML spectral domain detector 已改为保留 sparse graph affinity，不再强制 dense 化。
 
-scaling 风险：
+初始 scaling 风险：
 
 ```text
 n_bins  rmse_holdout  layer_ari  runtime_s
@@ -3430,6 +3483,69 @@ n_bins  rmse_holdout  layer_ari  runtime_s
 - aggregation-aware model selection
 - true high-resolution dataset validation
 
+#### Adaptive neighborhood v2：修复 8x pseudo-bin layer ARI 下降
+
+针对 8x pseudo-bin 下 layer ARI 从 `0.353` 降到 `0.105` 的问题，已新增：
+
+```text
+--highres-bioml-neighbor-mode adaptive
+--highres-bioml-adaptive-neighbor-scale 10.0
+--highres-bioml-parent-weight
+--highres-bioml-parent-neighbors
+```
+
+核心思想：
+
+```text
+When one parent spot is split into more pseudo-bins, a fixed KNN graph becomes
+too local and fragments tissue layers. Increase KNN with pseudo-bin density.
+```
+
+当前默认：
+
+```text
+neighbor_mode = adaptive
+base_neighbors = bioml_n_neighbors
+extra_neighbors = round((pseudo_bins_per_parent - 4) * 10)
+```
+
+8x seed 42 对照：
+
+```text
+setting                    layer_ari  layer_nmi
+fixed/default old           0.104927   0.199823
+adaptive scale 4            0.308625   0.403829
+adaptive scale 8            0.339756   0.456775
+adaptive scale 10           0.410055   0.512730
+adaptive scale 12           0.355558   0.443150
+```
+
+8x scale 10 多 seed：
+
+```text
+seed  rmse_holdout  parent_rmse  layer_ari  layer_nmi
+42    0.087832      0.064874     0.410055   0.512730
+43    0.083241      0.061011     0.401305   0.494254
+44    0.085945      0.062521     0.314886   0.415050
+mean  0.085673      0.062802     0.375415   0.474011
+```
+
+更新后的 scaling check：
+
+```text
+n_bins  rmse_holdout  parent_rmse  layer_ari  layer_nmi
+160     0.090433      0.073048     0.307608   0.449267
+320     0.091409      0.071571     0.353396   0.475051
+640     0.087832      0.064874     0.410055   0.512730
+```
+
+结论：
+
+1. 8x 崩盘主要来自 fixed KNN graph 太局部，不是 `highres_bioml` 主线失败。
+2. adaptive neighborhood 已把 8x layer ARI 从 `0.105` 提升到 `0.410`。
+3. `parent_weight=0.2` 没有超过 pure adaptive KNN，因此 parent-aware graph 暂不设为默认。
+4. 下一步应在更多 seeds、更多 datasets、真实 high-resolution 数据上验证 adaptive scale 是否需要自动调参。
+
 #### 下一步 high-resolution 优先事项
 
 1. 对 `highres_bioml` 做 formal benchmark：
@@ -3444,11 +3560,15 @@ n_bins  rmse_holdout  layer_ari  runtime_s
    - expression-KNN APA proxy
    - no-APA domain graph
    - sparse-GP APA view as negative control
-3. 比较 sparse GP、block GP、local GP。
-4. 加 aggregation-aware model selection：
+3. 验证 adaptive graph-neighbor selection：
+   - 更多 seeds
+   - 更多 subbin levels
+   - true high-resolution datasets
+4. 比较 sparse GP、block GP、local GP。
+5. 加 aggregation-aware model selection：
    - pseudo-bin 层面不要只看局部拟合
    - 聚合回 parent spot 后也要保留 tissue/layer structure
-5. 寻找真正保留 3-prime/poly(A) 信息的 high-resolution spatial transcriptomics 数据集。
+6. 寻找真正保留 3-prime/poly(A) 信息的 high-resolution spatial transcriptomics 数据集。
 
 ---
 

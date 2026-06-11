@@ -206,6 +206,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bioml-max-iter", type=int, default=20)
     parser.add_argument("--bioml-n-neighbors", type=int, default=15)
     parser.add_argument("--bioml-blend", type=float, default=0.1)
+    parser.add_argument(
+        "--highres-bioml-neighbor-mode",
+        default="adaptive",
+        choices=["fixed", "adaptive"],
+    )
+    parser.add_argument("--highres-bioml-adaptive-neighbor-scale", type=float, default=10.0)
     parser.add_argument("--layer-column", default="layer")
     parser.add_argument(
         "--formal-methods",
@@ -297,6 +303,10 @@ def build_command(
         str(args.bioml_n_neighbors),
         "--bioml-blend",
         str(args.bioml_blend),
+        "--highres-bioml-neighbor-mode",
+        str(args.highres_bioml_neighbor_mode),
+        "--highres-bioml-adaptive-neighbor-scale",
+        str(args.highres_bioml_adaptive_neighbor_scale),
         "--highres-bioml-gp-blend",
         str(graph_spec["gp_blend"]),
         "--highres-bioml-spatial-weight",

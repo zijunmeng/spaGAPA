@@ -35,6 +35,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy import sparse
 from scipy.stats import spearmanr
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.neighbors import NearestNeighbors
@@ -151,6 +152,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--highres-bioml-spatial-weight", type=float, default=0.2)
     parser.add_argument("--highres-bioml-expression-weight", type=float, default=0.6)
     parser.add_argument("--highres-bioml-apa-weight", type=float, default=0.2)
+    parser.add_argument(
+        "--highres-bioml-neighbor-mode",
+        default="adaptive",
+        choices=["fixed", "adaptive"],
+        help="Use fixed or pseudo-bin-density adaptive KNN size for highres_bioml graph construction.",
+    )
+    parser.add_argument(
+        "--highres-bioml-adaptive-neighbor-scale",
+        type=float,
+        default=10.0,
+        help="Additional KNN neighbors per pseudo-bin-per-parent above 4 when neighbor mode is adaptive.",
+    )
+    parser.add_argument(
+        "--highres-bioml-parent-weight",
+        type=float,
+        default=0.0,
+        help="Weight for coarse parent-aware graph fusion in highres_bioml.",
+    )
+    parser.add_argument(
+        "--highres-bioml-parent-neighbors",
+        type=int,
+        default=8,
+        help="Parent-level KNN size for coarse parent-aware graph fusion.",
+    )
     parser.add_argument(
         "--highres-bioml-apa-source",
         default="expression_knn",
@@ -475,6 +500,7 @@ def highres_bioml_recover(
     expression_knn_matrix: np.ndarray | None,
     sparse_gp: np.ndarray | None,
     uncertainty: np.ndarray | None,
+    parent_index: np.ndarray | None,
     n_domains: int,
     args: argparse.Namespace,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -513,8 +539,9 @@ def highres_bioml_recover(
         apa_matrix = sparse_gp
         apa_uncertainty = uncertainty
 
+    n_neighbors = resolve_highres_bioml_neighbors(coords.shape[0], parent_index, args)
     graph = MultiViewGraphBuilder(
-        n_neighbors=args.bioml_n_neighbors,
+        n_neighbors=n_neighbors,
         spatial_weight=args.highres_bioml_spatial_weight,
         expression_weight=args.highres_bioml_expression_weight,
         apa_weight=args.highres_bioml_apa_weight if apa_matrix is not None else 0.0,
@@ -524,12 +551,110 @@ def highres_bioml_recover(
         apa_matrix=apa_matrix,
         uncertainty=apa_uncertainty,
     )
+    fused_graph = add_parent_aware_graph(
+        graph.fused,
+        coords,
+        expression_embedding,
+        parent_index,
+        args,
+    )
     domains = BioMLDomainDetector(
         method="spectral",
         n_domains=n_domains,
         random_state=42,
-    ).fit_predict(graph=graph.fused)
+    ).fit_predict(graph=fused_graph)
     return recovered, domains
+
+
+def resolve_highres_bioml_neighbors(
+    n_spots: int,
+    parent_index: np.ndarray | None,
+    args: argparse.Namespace,
+) -> int:
+    """Resolve high-resolution graph KNN size."""
+    base = int(args.bioml_n_neighbors)
+    if args.highres_bioml_neighbor_mode == "fixed" or parent_index is None:
+        return min(max(1, base), max(1, n_spots - 1))
+    parent_index = np.asarray(parent_index)
+    n_parent = max(1, int(len(np.unique(parent_index))))
+    pseudo_bins_per_parent = n_spots / n_parent
+    extra = max(0, int(round((pseudo_bins_per_parent - 4.0) * args.highres_bioml_adaptive_neighbor_scale)))
+    adaptive = base + extra
+    return min(max(1, adaptive), max(1, n_spots - 1))
+
+
+def aggregate_features_by_parent(features: np.ndarray, parent_index: np.ndarray) -> np.ndarray:
+    """Average spot-level features to parent/coarse bins."""
+    parent_index = np.asarray(parent_index, dtype=int)
+    n_parent = int(parent_index.max()) + 1
+    out = np.zeros((n_parent, features.shape[1]), dtype=float)
+    counts = np.bincount(parent_index, minlength=n_parent).astype(float)
+    for dim in range(features.shape[1]):
+        out[:, dim] = np.bincount(parent_index, weights=features[:, dim], minlength=n_parent)
+    return out / np.maximum(counts[:, None], 1.0)
+
+
+def lift_parent_graph(parent_graph: sparse.csr_matrix, parent_index: np.ndarray) -> sparse.csr_matrix:
+    """Lift a sparse parent/coarse graph to pseudo-bin resolution."""
+    parent_index = np.asarray(parent_index, dtype=int)
+    n_spots = len(parent_index)
+    children = [np.where(parent_index == parent)[0] for parent in range(int(parent_index.max()) + 1)]
+    coo = parent_graph.tocoo()
+    rows: list[int] = []
+    cols: list[int] = []
+    data: list[float] = []
+    for parent_i, parent_j, value in zip(coo.row, coo.col, coo.data):
+        if parent_i == parent_j or value <= 0:
+            continue
+        idx_i = children[int(parent_i)]
+        idx_j = children[int(parent_j)]
+        if idx_i.size == 0 or idx_j.size == 0:
+            continue
+        weight = float(value) / np.sqrt(float(idx_i.size * idx_j.size))
+        block_rows = np.repeat(idx_i, idx_j.size)
+        block_cols = np.tile(idx_j, idx_i.size)
+        rows.extend(block_rows.tolist())
+        cols.extend(block_cols.tolist())
+        data.extend([weight] * len(block_rows))
+    lifted = sparse.csr_matrix((data, (rows, cols)), shape=(n_spots, n_spots))
+    lifted = lifted.maximum(lifted.T)
+    lifted.setdiag(0.0)
+    lifted.eliminate_zeros()
+    return lifted
+
+
+def add_parent_aware_graph(
+    fused_graph: sparse.csr_matrix,
+    coords: np.ndarray,
+    expression_embedding: np.ndarray,
+    parent_index: np.ndarray | None,
+    args: argparse.Namespace,
+) -> sparse.csr_matrix:
+    """Fuse a high-resolution graph with a lifted parent/coarse graph."""
+    parent_weight = float(np.clip(args.highres_bioml_parent_weight, 0.0, 1.0))
+    if parent_weight <= 0 or parent_index is None:
+        return fused_graph
+
+    parent_index = np.asarray(parent_index, dtype=int)
+    if len(np.unique(parent_index)) < 2:
+        return fused_graph
+    parent_coords = aggregate_features_by_parent(coords, parent_index)
+    parent_expr = aggregate_features_by_parent(expression_embedding, parent_index)
+    parent_graph = MultiViewGraphBuilder(
+        n_neighbors=min(args.highres_bioml_parent_neighbors, parent_coords.shape[0] - 1),
+        spatial_weight=0.5,
+        expression_weight=0.5,
+        apa_weight=0.0,
+    ).build(
+        parent_coords,
+        expression_embedding=parent_expr,
+    )
+    lifted = lift_parent_graph(parent_graph.fused, parent_index)
+    combined = (1.0 - parent_weight) * fused_graph + parent_weight * lifted
+    combined = combined.maximum(combined.T)
+    combined.setdiag(0.0)
+    combined.eliminate_zeros()
+    return combined.tocsr()
 
 
 def highres_bioml_needs_sparse_gp(args: argparse.Namespace) -> bool:
@@ -705,6 +830,7 @@ def run_methods(sim: dict[str, Any], args: argparse.Namespace, n_domains: int) -
                 expression_knn_matrix,
                 sparse_matrix,
                 sparse_uncertainty,
+                sim["parent_index"],
                 n_domains,
                 args,
             )

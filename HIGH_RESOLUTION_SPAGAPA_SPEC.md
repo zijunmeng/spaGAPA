@@ -543,7 +543,7 @@ BioML spectral domain detector now keeps sparse affinity matrices sparse
 instead of converting them to dense arrays.
 ```
 
-Scaling observation:
+Initial scaling observation:
 
 ```text
 n_bins  rmse_holdout  layer_ari  runtime_s
@@ -556,9 +556,78 @@ The 8x pseudo-bin scenario exposes a remaining risk: layer ARI drops at larger
 subbin expansion. This likely reflects over-fragmented inherited labels and/or
 graph-neighborhood settings that are too local for larger pseudo-bin clouds.
 
+### 10.3 Adaptive Neighborhood v2
+
+Implemented:
+
+```text
+--highres-bioml-neighbor-mode adaptive
+--highres-bioml-adaptive-neighbor-scale 10.0
+--highres-bioml-parent-weight
+--highres-bioml-parent-neighbors
+```
+
+Default adaptive KNN rule:
+
+```text
+base_neighbors = bioml_n_neighbors
+extra_neighbors = round((pseudo_bins_per_parent - 4) * 10)
+highres_neighbors = base_neighbors + max(extra_neighbors, 0)
+```
+
+Rationale:
+
+```text
+Fixed KNN is adequate at 2x/4x pseudo-bin expansion, but becomes too local at
+8x. Adaptive KNN preserves a comparable tissue-scale neighborhood as the
+number of pseudo-bins per parent spot increases.
+```
+
+8x scale sweep:
+
+```text
+setting                    layer_ari  layer_nmi
+fixed/default old           0.104927   0.199823
+adaptive scale 4            0.308625   0.403829
+adaptive scale 8            0.339756   0.456775
+adaptive scale 10           0.410055   0.512730
+adaptive scale 12           0.355558   0.443150
+```
+
+8x scale 10 multi-seed check:
+
+```text
+seed  rmse_holdout  parent_rmse  layer_ari  layer_nmi
+42    0.087832      0.064874     0.410055   0.512730
+43    0.083241      0.061011     0.401305   0.494254
+44    0.085945      0.062521     0.314886   0.415050
+mean  0.085673      0.062802     0.375415   0.474011
+```
+
+Updated scaling check:
+
+```text
+n_bins  rmse_holdout  parent_rmse  layer_ari  layer_nmi
+160     0.090433      0.073048     0.307608   0.449267
+320     0.091409      0.071571     0.353396   0.475051
+640     0.087832      0.064874     0.410055   0.512730
+```
+
+Interpretation:
+
+1. The previous 8x failure was primarily a fixed-neighborhood graph failure.
+2. Adaptive KNN fixes most of the 8x biological-consistency drop without
+   changing APA value recovery.
+3. Parent-aware graph fusion remains experimental:
+   - `parent_weight = 0.2` did not improve over pure adaptive KNN in the current
+     pilot.
+   - Parent-aware fusion should be tested again on real high-resolution data
+     where true coarse regions are known.
+
 Next high-resolution work:
 
-- Add adaptive graph-neighbor selection for 8x and larger pseudo-bin settings.
+- Validate adaptive graph-neighbor selection on more seeds and real
+  high-resolution datasets.
 - Add low-coverage/dropout-heavy gene strata.
 - Add aggregation-aware objective or evaluation-driven model selection for
   parent-level RMSE.
