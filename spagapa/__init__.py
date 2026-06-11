@@ -66,6 +66,14 @@ from spagapa.bioml import (
     MultiViewGraphBuilder,
 )
 
+# User-facing analysis presets
+from spagapa.presets import (
+    VALID_ANALYSIS_PRESETS,
+    DatasetProfile,
+    profile_spatial_apa_matrix,
+    resolve_analysis_preset,
+)
+
 # Visualization
 from spagapa.visualization import (
     SpatialPlotter, StatisticalPlotter, QCPlotter,
@@ -102,6 +110,9 @@ __all__ = [
     # BioML
     "BioMLDomainDetector", "GraphRegularizedAPAFactorizer",
     "MultiViewGraph", "MultiViewGraphBuilder",
+    # Presets
+    "VALID_ANALYSIS_PRESETS", "DatasetProfile", "profile_spatial_apa_matrix",
+    "resolve_analysis_preset",
     # Visualization
     "SpatialPlotter", "StatisticalPlotter", "QCPlotter",
     # Pipeline

@@ -64,6 +64,13 @@ _opt_uncertainty = click.option(
     '--use-uncertainty/--no-uncertainty', default=True, show_default=True,
     help='Use imputation uncertainty to weight downstream analyses.'
 )
+_opt_analysis_preset = click.option(
+    '--analysis-preset',
+    default='auto',
+    show_default=True,
+    type=click.Choice(['auto', 'standard', 'highres_accuracy', 'highres_fast']),
+    help='User-facing analysis mode; auto resolves from data shape.'
+)
 
 
 # ── run ──────────────────────────────────────────────────────────────
@@ -90,8 +97,8 @@ _opt_uncertainty = click.option(
 @click.option('--no-impute', is_flag=True, help='Skip GP imputation.')
 @click.option('--no-quantify', is_flag=True, help='Skip APA quantification.')
 @click.option('--no-domains', is_flag=True, help='Skip domain identification.')
-@click.option('--enable-bioml/--disable-bioml', default=False, show_default=True,
-              help='Use BioML multi-view graph domain recovery.')
+@click.option('--enable-bioml/--disable-bioml', default=None, show_default='preset',
+              help='Override preset-driven BioML multi-view graph domain recovery.')
 @click.option('--bioml-domain-method', default='spectral', show_default=True,
               type=click.Choice(['spectral', 'kmeans']),
               help='BioML domain detector.')
@@ -123,6 +130,7 @@ _opt_uncertainty = click.option(
 @_opt_sparse
 @_opt_fdr
 @_opt_uncertainty
+@_opt_analysis_preset
 @_opt_verbose
 @_opt_output
 def run(**kwargs):
@@ -142,6 +150,7 @@ def run(**kwargs):
         gp_alpha=kwargs['gp_alpha'],
         gp_n_restarts_optimizer=kwargs['gp_n_restarts'],
         use_sparse_gp=kwargs['sparse'],
+        analysis_preset=kwargs['analysis_preset'],
         use_bioml=kwargs['enable_bioml'],
         bioml_rank=kwargs['bioml_rank'],
         bioml_lambda_graph=kwargs['bioml_lambda_graph'],
@@ -191,6 +200,13 @@ def run(**kwargs):
         click.echo(f"   Spatial domains: {domains['n_domains']}")
         if domains.get('method') == 'spagapa_bioml':
             click.echo(f"   BioML domain method: {domains.get('domain_method')}")
+
+    preset = results.get('analysis_preset')
+    if preset is not None:
+        click.echo(
+            "   Analysis preset: "
+            f"{preset['requested_preset']} -> {preset['resolved_preset']}"
+        )
 
     qc = results.get('qc_report')
     if qc and isinstance(qc, dict):

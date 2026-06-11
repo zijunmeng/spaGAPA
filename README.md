@@ -71,20 +71,26 @@ ax = plot_spatial_apa(coords, observed[0], gene_name='Gene_0')
 ax = plot_volcano(results['log2fc'].values, results['padj'].values)
 ```
 
-### CLI with BioML domains
+### CLI with analysis presets
 
 ```bash
 spagapa run \
   --apa-matrix apa_matrix.csv \
   --coordinates coordinates.csv \
   --expression-matrix expression_matrix.csv \
-  --enable-bioml \
-  --bioml-domain-method spectral \
+  --analysis-preset auto \
   --n-domains 5 \
   --output spagapa_results
 ```
 
-BioML outputs include `domains.csv`, `bioml_metadata.json`, `bioml_spot_factors.npy`, and `bioml_imputed_values.npy`.
+`--analysis-preset auto` inspects the APA matrix shape and sparsity, then resolves
+to either `standard` or `highres_accuracy`. Advanced users can force
+`standard`, `highres_accuracy`, or `highres_fast`; they can also override the
+automatic BioML decision with `--enable-bioml` or `--disable-bioml`.
+
+BioML/preset outputs include `analysis_preset.json`, `domains.csv`,
+`bioml_metadata.json`, `bioml_spot_factors.npy`, and
+`bioml_imputed_values.npy`.
 
 ---
 

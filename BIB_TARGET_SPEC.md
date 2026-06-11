@@ -3570,6 +3570,122 @@ n_bins  rmse_holdout  parent_rmse  layer_ari  layer_nmi
    - 聚合回 parent spot 后也要保留 tissue/layer structure
 6. 寻找真正保留 3-prime/poly(A) 信息的 high-resolution spatial transcriptomics 数据集。
 
+### 23.22 Analysis preset 已接入主 pipeline / CLI
+
+为避免用户直接面对 `sparse GP`、`BioML`、`highres_bioml`、`fast-domain`
+等内部组件，spaGAPA 已新增 user-facing analysis preset 层：
+
+```text
+analysis_preset = auto | standard | highres_accuracy | highres_fast
+```
+
+当前实现位置：
+
+```text
+spagapa/presets.py
+spagapa/pipeline.py
+spagapa/cli.py
+```
+
+#### 当前解析逻辑
+
+`auto` 不根据平台名判断，而是根据数据形态判断：
+
+```text
+profile =
+  n_genes
+  n_spots
+  finite_fraction
+  observed_fraction
+  positive_fraction
+  median_observed_per_spot
+  median_positive_per_spot
+```
+
+初始 high-resolution-like 规则：
+
+```text
+if n_spots >= 1000
+   or observed_fraction < 0.35
+   or (n_spots >= 300 and positive APA signal is very sparse):
+       auto -> highres_accuracy
+else:
+       auto -> standard
+```
+
+这条规则是 MVP，后续需要在真实 high-resolution datasets 上重新校准阈值。
+
+#### preset 行为
+
+```text
+standard
+  - 保留常规 GP / domain pipeline 行为
+  - BioML 由用户显式 --enable-bioml 或 API use_bioml=True 启用
+
+highres_accuracy
+  - 启用 sparse GP
+  - 启用 BioML
+  - 默认 graph weights 调为 spatial=0.2, expression=0.6, APA=0.2
+  - 保留 GP imputation 和 uncertainty
+
+highres_fast
+  - 启用 BioML
+  - 跳过 GP imputation
+  - 默认 graph weights 调为 spatial=0.2, expression=0.6, APA=0.2
+  - bioml_blend 默认为 0
+  - 定位是快速 domain discovery / exploratory analysis
+```
+
+CLI 已改为：
+
+```bash
+spagapa run \
+  --apa-matrix apa_matrix.csv \
+  --coordinates coordinates.csv \
+  --expression-matrix expression_matrix.csv \
+  --analysis-preset auto \
+  --n-domains 5 \
+  --output spagapa_results
+```
+
+其中 `--enable-bioml/--disable-bioml` 改为三态 override：
+
+- 不写：由 preset 决定
+- `--enable-bioml`：强制启用 BioML
+- `--disable-bioml`：强制关闭 BioML
+
+#### 可复现输出
+
+每次运行会在结果中记录：
+
+```text
+results["analysis_preset"]
+dataset.adata.uns["apa"]["analysis_preset"]
+analysis_preset.json
+```
+
+记录内容包括：
+
+- requested preset
+- resolved preset
+- dataset profile
+- impute / sparse GP / BioML 是否启用
+- BioML graph weights
+- fast mode 是否跳过 GP
+
+#### 当前边界
+
+这一步解决的是用户入口和主 pipeline 决策层，不等于已经完成所有真实
+high-resolution 数据验证。
+
+下一步必须做：
+
+1. 把 benchmark 中表现最好的 `highres_bioml` decoupled domain route 继续向主
+   pipeline 对齐。
+2. 在外部真实 high-resolution datasets 上验证 `auto -> highres_accuracy`
+   阈值。
+3. 为 `highres_fast` 单独报告 domain recovery、runtime 和 uncertainty 缺失说明。
+
 ---
 
 ## 24. 最终目标陈述

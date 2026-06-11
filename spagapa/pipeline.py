@@ -19,6 +19,11 @@ from spagapa.spatial import SpatialNeighbors
 from spagapa.calling import SpatialValidator, QualityFilter
 from spagapa.imputation import GPImputer, SparseGPImputer, ExpressionFeatureBuilder
 from spagapa.bioml import BioMLDomainDetector, GraphRegularizedAPAFactorizer, MultiViewGraphBuilder
+from spagapa.presets import (
+    VALID_ANALYSIS_PRESETS,
+    profile_spatial_apa_matrix,
+    resolve_analysis_preset,
+)
 from spagapa.quantification import APAIndexCalculator, QCReportGenerator
 from spagapa.analysis import (
     DomainIdentifier,
@@ -64,8 +69,10 @@ class SpaGAPA:
         Minimum read count per site.
     min_spots : int, default=5
         Minimum spots for quality filtering.
-    use_bioml : bool, default=False
-        Use CPU-friendly BioML multi-view graph domain recovery.
+    analysis_preset : {'auto', 'standard', 'highres_accuracy', 'highres_fast'}, default='auto'
+        User-facing analysis mode. ``auto`` resolves from data shape.
+    use_bioml : bool, optional
+        Override preset-driven BioML multi-view graph domain recovery.
     bioml_rank : int, default=8
         Low-rank dimension for BioML APA factorization.
     bioml_domain_method : {'spectral', 'kmeans'}, default='spectral'
@@ -88,7 +95,8 @@ class SpaGAPA:
         min_spatial_support: float = 0.3,
         min_read_count: int = 10,
         min_spots: int = 5,
-        use_bioml: bool = False,
+        analysis_preset: str = 'auto',
+        use_bioml: Optional[bool] = None,
         bioml_rank: int = 8,
         bioml_lambda_graph: float = 0.5,
         bioml_lambda_l2: float = 1e-2,
@@ -112,7 +120,11 @@ class SpaGAPA:
         self.min_spatial_support = min_spatial_support
         self.min_read_count = min_read_count
         self.min_spots = min_spots
-        self.use_bioml = bool(use_bioml)
+        if analysis_preset not in VALID_ANALYSIS_PRESETS:
+            valid = ", ".join(VALID_ANALYSIS_PRESETS)
+            raise ValueError(f"analysis_preset must be one of: {valid}")
+        self.analysis_preset = analysis_preset
+        self.use_bioml = None if use_bioml is None else bool(use_bioml)
         self.bioml_rank = int(bioml_rank)
         self.bioml_lambda_graph = float(bioml_lambda_graph)
         self.bioml_lambda_l2 = float(bioml_lambda_l2)
@@ -129,6 +141,9 @@ class SpaGAPA:
         self.dataset_: Optional[APADataset] = None
         self.imputer_ = None
         self.results_: Dict = {}
+        self.resolved_analysis_preset_: Optional[str] = None
+        self.dataset_profile_: Optional[Dict] = None
+        self._active_bioml_params: Dict = {}
 
     def _log(self, msg: str):
         if self.verbose:
@@ -154,6 +169,87 @@ class SpaGAPA:
                 "Coordinate count does not match spots: "
                 f"{coords.shape[0]} coords vs {self.dataset_.n_spots} spots"
             )
+
+    def _active_bioml_defaults(self, resolved_preset: str) -> Dict[str, float]:
+        """Resolve run-local BioML defaults without mutating the estimator."""
+        params = {
+            'spatial_weight': self.bioml_spatial_weight,
+            'expression_weight': self.bioml_expression_weight,
+            'apa_weight': self.bioml_apa_weight,
+            'blend': self.bioml_blend,
+        }
+        if resolved_preset not in {'highres_accuracy', 'highres_fast'}:
+            return params
+
+        default_weights = (
+            abs(self.bioml_spatial_weight - 0.4) < 1e-12
+            and abs(self.bioml_expression_weight - 0.4) < 1e-12
+            and abs(self.bioml_apa_weight - 0.2) < 1e-12
+        )
+        if default_weights:
+            params['spatial_weight'] = 0.2
+            params['expression_weight'] = 0.6
+            params['apa_weight'] = 0.2
+
+        if resolved_preset == 'highres_fast' and abs(self.bioml_blend - 0.1) < 1e-12:
+            params['blend'] = 0.0
+        return params
+
+    def _resolve_run_options(
+        self,
+        impute: bool,
+        use_bioml: Optional[bool],
+    ) -> Dict:
+        """Resolve preset-aware algorithm switches for the current dataset."""
+        if self.dataset_ is None:
+            raise ValueError("No dataset loaded")
+
+        profile = profile_spatial_apa_matrix(
+            self.dataset_.raw_counts,
+            input_type=self.input_type,
+        )
+        resolved_preset = resolve_analysis_preset(self.analysis_preset, profile)
+        self._active_bioml_params = self._active_bioml_defaults(resolved_preset)
+
+        use_bioml_this_run = self.use_bioml if use_bioml is None else bool(use_bioml)
+        if use_bioml_this_run is None:
+            use_bioml_this_run = resolved_preset in {'highres_accuracy', 'highres_fast'}
+
+        impute_this_run = bool(impute)
+        use_sparse_gp_this_run = bool(self.use_sparse_gp)
+        if resolved_preset == 'highres_accuracy':
+            use_sparse_gp_this_run = True
+        elif resolved_preset == 'highres_fast':
+            impute_this_run = False
+            use_sparse_gp_this_run = False
+
+        metadata = {
+            'requested_preset': self.analysis_preset,
+            'resolved_preset': resolved_preset,
+            'profile': profile.to_dict(),
+            'impute': bool(impute_this_run),
+            'use_sparse_gp': bool(use_sparse_gp_this_run),
+            'use_bioml': bool(use_bioml_this_run),
+            'bioml_weights': {
+                'spatial': self._active_bioml_params['spatial_weight'],
+                'expression': self._active_bioml_params['expression_weight'],
+                'apa': self._active_bioml_params['apa_weight'],
+            },
+            'bioml_blend': self._active_bioml_params['blend'],
+            'notes': [],
+        }
+        if self.analysis_preset == 'auto':
+            metadata['notes'].append(
+                "auto resolved to highres_accuracy"
+                if resolved_preset == 'highres_accuracy'
+                else "auto resolved to standard"
+            )
+        if resolved_preset == 'highres_fast':
+            metadata['notes'].append("highres_fast skips GP imputation and uncertainty")
+
+        self.resolved_analysis_preset_ = resolved_preset
+        self.dataset_profile_ = profile.to_dict()
+        return metadata
 
     def _clip_apa_values(self, values: np.ndarray) -> np.ndarray:
         """Clip matrices according to the declared input scale."""
@@ -248,12 +344,18 @@ class SpaGAPA:
         """Run CPU-friendly BioML refinement and domain recovery."""
         mask = self._training_mask(self.dataset_.raw_counts)
         confidence = self._confidence_from_uncertainty(uncertainty, mask)
+        active_params = self._active_bioml_params or {
+            'spatial_weight': self.bioml_spatial_weight,
+            'expression_weight': self.bioml_expression_weight,
+            'apa_weight': self.bioml_apa_weight,
+            'blend': self.bioml_blend,
+        }
 
         graph = MultiViewGraphBuilder(
             n_neighbors=self.bioml_n_neighbors,
-            spatial_weight=self.bioml_spatial_weight,
-            expression_weight=self.bioml_expression_weight,
-            apa_weight=self.bioml_apa_weight,
+            spatial_weight=active_params['spatial_weight'],
+            expression_weight=active_params['expression_weight'],
+            apa_weight=active_params['apa_weight'],
         ).build(
             coords,
             expression_embedding=expression_embedding,
@@ -276,7 +378,7 @@ class SpaGAPA:
             confidence=confidence,
         )
 
-        blend = float(np.clip(self.bioml_blend, 0.0, 1.0))
+        blend = float(np.clip(active_params['blend'], 0.0, 1.0))
         refined = (1.0 - blend) * work + blend * bioml_imputed
         refined[mask] = self.dataset_.raw_counts[mask]
         refined = self._clip_apa_values(refined)
@@ -307,9 +409,9 @@ class SpaGAPA:
             'n_neighbors': self.bioml_n_neighbors,
             'blend': blend,
             'graph_weights_requested': {
-                'spatial': self.bioml_spatial_weight,
-                'expression': self.bioml_expression_weight,
-                'apa': self.bioml_apa_weight,
+                'spatial': active_params['spatial_weight'],
+                'expression': active_params['expression_weight'],
+                'apa': active_params['apa_weight'],
             },
             'graph_weights_effective': graph.weights,
             'has_expression_view': expression_embedding is not None,
@@ -461,7 +563,6 @@ class SpaGAPA:
         self._log("=" * 60)
         self._log("spaGAPA: Spatial GP-based APA Analyzer")
         self._log("=" * 60)
-        use_bioml_this_run = self.use_bioml if use_bioml is None else bool(use_bioml)
 
         # ── Step 1: Load data ──
         self._log("\n[1/7] Loading data...")
@@ -485,6 +586,19 @@ class SpaGAPA:
         if coords is None:
             raise ValueError("No spatial coordinates in dataset")
 
+        run_options = self._resolve_run_options(impute=impute, use_bioml=use_bioml)
+        impute_this_run = bool(run_options['impute'])
+        use_sparse_gp_this_run = bool(run_options['use_sparse_gp'])
+        use_bioml_this_run = bool(run_options['use_bioml'])
+        self.results_['analysis_preset'] = run_options
+        self.dataset_.adata.uns['apa']['analysis_preset'] = run_options
+        profile = run_options['profile']
+        self._log(
+            "  ✓ Analysis preset: "
+            f"{run_options['requested_preset']} -> {run_options['resolved_preset']} "
+            f"(spots={profile['n_spots']}, observed_fraction={profile['observed_fraction']:.3f})"
+        )
+
         # ── Step 2: Spatial validation & filtering ──
         self._log("\n[2/7] Spatial validation + quality filtering...")
         spatial_neighbors = SpatialNeighbors(n_neighbors=self.n_neighbors)
@@ -506,11 +620,11 @@ class SpaGAPA:
 
         # ── Step 3: GP imputation ──
         uncertainty = None
-        if impute:
+        if impute_this_run:
             self._log(f"\n[3/7] GP imputation (kernel={self.kernel_type})...")
             apa_matrix_values = self.dataset_.raw_counts  # (n_genes, n_spots)
 
-            if self.use_sparse_gp:
+            if use_sparse_gp_this_run:
                 base_imputer = SparseGPImputer(
                     n_inducing=self.n_inducing,
                 )
@@ -546,7 +660,8 @@ class SpaGAPA:
             self.results_['imputed_values'] = self.dataset_.imputed
             self.results_['uncertainty'] = self.dataset_.uncertainty
         else:
-            self._log("\n[3/7] Skipping imputation")
+            reason = "preset=highres_fast" if run_options['resolved_preset'] == 'highres_fast' else "requested"
+            self._log(f"\n[3/7] Skipping imputation ({reason})")
             self.results_['imputed_values'] = None
             self.results_['uncertainty'] = None
 
@@ -772,6 +887,11 @@ class SpaGAPA:
                 self._log("  ✓ bioml_gene_factors.npy")
             (out / "bioml_metadata.json").write_text(json.dumps(bioml, indent=2))
             self._log("  ✓ bioml_metadata.json")
+
+        preset = self.results_.get('analysis_preset')
+        if preset is not None:
+            (out / "analysis_preset.json").write_text(json.dumps(preset, indent=2))
+            self._log("  ✓ analysis_preset.json")
 
         svapa = self.results_.get('svapa_genes')
         if svapa is not None:

@@ -149,6 +149,111 @@ def test_pipeline_toy_bioml_mainline():
     assert results['dataset'].adata.uns['apa']['bioml']['has_expression_view'] is True
 
 
+def test_analysis_preset_auto_resolves_standard_on_toy_data():
+    dataset = make_toy_dataset(n_genes=4, grid_size=4)
+    pipeline = SpaGAPA(
+        analysis_preset='auto',
+        n_neighbors=4,
+        min_spots=3,
+        verbose=False,
+    )
+
+    results = pipeline.run(
+        dataset=dataset,
+        impute=False,
+        quantify=True,
+        identify_domains=False,
+        differential_analysis=False,
+        detect_svapa=False,
+    )
+
+    preset = results['analysis_preset']
+    assert preset['requested_preset'] == 'auto'
+    assert preset['resolved_preset'] == 'standard'
+    assert preset['use_bioml'] is False
+    assert preset['use_sparse_gp'] is False
+    assert dataset.adata.uns['apa']['analysis_preset']['resolved_preset'] == 'standard'
+
+
+def test_analysis_preset_highres_accuracy_enables_sparse_bioml():
+    dataset = make_toy_dataset(n_genes=5, grid_size=5)
+    expression_embedding = np.column_stack(
+        [
+            dataset.coords[:, 0],
+            dataset.coords[:, 1],
+            dataset.coords[:, 0] + dataset.coords[:, 1],
+        ]
+    )
+    pipeline = SpaGAPA(
+        analysis_preset='highres_accuracy',
+        n_neighbors=4,
+        n_inducing=8,
+        min_spots=3,
+        bioml_rank=3,
+        bioml_max_iter=3,
+        bioml_n_neighbors=4,
+        verbose=False,
+    )
+
+    results = pipeline.run(
+        dataset=dataset,
+        expression_embedding=expression_embedding,
+        impute=True,
+        quantify=True,
+        identify_domains=True,
+        differential_analysis=False,
+        detect_svapa=False,
+        n_domains=2,
+    )
+
+    preset = results['analysis_preset']
+    assert preset['resolved_preset'] == 'highres_accuracy'
+    assert preset['use_sparse_gp'] is True
+    assert preset['use_bioml'] is True
+    assert preset['bioml_weights'] == {'spatial': 0.2, 'expression': 0.6, 'apa': 0.2}
+    assert results['imputed_values'].shape == (dataset.n_genes, dataset.n_spots)
+    assert results['domains']['method'] == 'spagapa_bioml'
+
+
+def test_analysis_preset_highres_fast_skips_gp_but_runs_bioml():
+    dataset = make_toy_dataset(n_genes=5, grid_size=5)
+    expression_embedding = np.column_stack(
+        [
+            dataset.coords[:, 0],
+            dataset.coords[:, 1],
+            dataset.coords[:, 0] + dataset.coords[:, 1],
+        ]
+    )
+    pipeline = SpaGAPA(
+        analysis_preset='highres_fast',
+        n_neighbors=4,
+        min_spots=3,
+        bioml_rank=3,
+        bioml_max_iter=3,
+        bioml_n_neighbors=4,
+        verbose=False,
+    )
+
+    results = pipeline.run(
+        dataset=dataset,
+        expression_embedding=expression_embedding,
+        impute=True,
+        quantify=True,
+        identify_domains=True,
+        differential_analysis=False,
+        detect_svapa=False,
+        n_domains=2,
+    )
+
+    preset = results['analysis_preset']
+    assert preset['resolved_preset'] == 'highres_fast'
+    assert preset['impute'] is False
+    assert preset['use_bioml'] is True
+    assert results['imputed_values'] is None
+    assert results['uncertainty'] is None
+    assert results['domains']['method'] == 'spagapa_bioml'
+
+
 def test_cli_run_with_bioml_from_tables(tmp_path):
     dataset = make_toy_dataset(n_genes=4, grid_size=4)
     matrix = pd.DataFrame(
@@ -196,6 +301,8 @@ def test_cli_run_with_bioml_from_tables(tmp_path):
             '--expression-matrix',
             str(expression_file),
             '--enable-bioml',
+            '--analysis-preset',
+            'standard',
             '--no-svapa',
             '--n-domains',
             '2',
@@ -216,5 +323,6 @@ def test_cli_run_with_bioml_from_tables(tmp_path):
     assert result.exit_code == 0, result.output
     assert (output_dir / "dataset.h5ad").exists()
     assert (output_dir / "domains.csv").exists()
+    assert (output_dir / "analysis_preset.json").exists()
     assert (output_dir / "bioml_metadata.json").exists()
     assert (output_dir / "bioml_spot_factors.npy").exists()
