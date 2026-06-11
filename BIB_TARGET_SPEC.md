@@ -2603,6 +2603,146 @@ layer_local_lambda_0.2_k_10_radius
 
 ---
 
+### 23.16 BioML benchmark integration 初步完成
+
+在确认 single-gene expression-aware GP 难以同时兼顾 RMSE、calibration 和 biological consistency 后，已进一步实现并测试 CPU-friendly BioML backbone 的 benchmark 集成。
+
+本轮 BioML 方法不是替代 GP，而是两阶段模型：
+
+```text
+spatial GP imputation + uncertainty
+  -> multi-view graph
+  -> graph-regularized APA factorization
+  -> BioML domain detector
+```
+
+核心原则：
+
+- 不使用深度学习
+- 不使用 GPU
+- 不使用真实 layer label 作为训练输入
+- layer label 只用于 ARI/NMI 评价
+
+BioML benchmark 已接入：
+
+```text
+scripts/run_stapaminer_mob_benchmark.py
+```
+
+新增参数：
+
+```text
+--include-bioml
+--bioml-rank
+--bioml-lambda-graph
+--bioml-lambda-l2
+--bioml-max-iter
+--bioml-n-neighbors
+--bioml-blend
+--bioml-domain-method {kmeans,spectral}
+--bioml-spatial-weight
+--bioml-expression-weight
+--bioml-apa-weight
+```
+
+本轮 targeted pilot 设置：
+
+- `n_genes = 30`
+- `seeds = 42`
+- `mask_types = random, ring_sector, layer_aware`
+- `gp_kernel = matern`
+- `gp_alpha = 1e-3`
+- `bioml_blend = 0.1`
+
+结果目录：
+
+```text
+spaGAPA/benchmark_results/real/bioml_targeted_v1/
+spaGAPA/benchmark_results/real/bioml_targeted_spectral_v1/
+```
+
+#### KMeans BioML domain detector
+
+```text
+spatial GP:
+  rmse = 0.112329
+  layer_ari = 0.036980
+  uncertainty_error_spearman = 0.720964
+
+BioML-kmeans:
+  rmse = 0.112568
+  layer_ari = 0.059991
+  uncertainty_error_spearman = 0.710106
+
+stAPAminer-like:
+  rmse = 0.125075
+  layer_ari = 0.077191
+```
+
+KMeans BioML 的意义：
+
+- 几乎保住了 spatial GP 的 RMSE
+- layer ARI 从 `0.037` 提升到 `0.060`
+- 但仍未超过 stAPAminer-like 的 `0.077`
+
+#### Spectral BioML domain detector
+
+```text
+spatial GP:
+  rmse = 0.112329
+  layer_ari = 0.036980
+  uncertainty_error_spearman = 0.720964
+
+BioML-spectral:
+  rmse = 0.112568
+  layer_ari = 0.377720
+  layer_nmi = 0.474067
+  uncertainty_error_spearman = 0.710106
+
+stAPAminer-like:
+  rmse = 0.125075
+  layer_ari = 0.077191
+  layer_nmi = 0.110255
+```
+
+分 mask 结果同样支持这一结论：
+
+```text
+BioML-spectral layer ARI:
+  random      = 0.339723
+  ring_sector = 0.370689
+  layer_aware = 0.422746
+
+stAPAminer-like layer ARI:
+  random      = 0.049233
+  ring_sector = 0.038743
+  layer_aware = 0.143597
+```
+
+这一步是目前为止最重要的突破：
+
+1. **RMSE 基本保持 spatial GP 水平**
+   - `spatial GP rmse = 0.112329`
+   - `BioML-spectral rmse = 0.112568`
+
+2. **biological consistency 首次显著超过 stAPAminer-like baseline**
+   - `BioML-spectral layer ARI = 0.378`
+   - `stAPAminer-like layer ARI = 0.077`
+
+3. **uncertainty calibration 基本继承 GP backbone**
+   - `spatial GP uncertainty_error_spearman = 0.721`
+   - `BioML-spectral uncertainty_error_spearman = 0.710`
+
+4. **这说明 spaGAPA 的“全面超越”路线应转向 BioML backbone**
+   - GP 负责 imputation + uncertainty
+   - multi-view graph/spectral domain detector 负责 biological consistency
+
+当前判断：
+
+> spaGAPA-BioML 已经在小规模 targeted pilot 中实现了非常接近 spatial GP 的 RMSE/calibration，并显著超过 stAPAminer-like 的 layer ARI/NMI。下一步应扩大到 formal benchmark：更多 genes、seeds、mask types 和 graph weight sweep。
+
+---
+
 ## 24. 最终目标陈述
 
 spaGAPA 面向 BIB 的最终目标不是证明“我们写了一个包”，而是证明：

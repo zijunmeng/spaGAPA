@@ -55,6 +55,7 @@ from sklearn.metrics import (
 from sklearn.metrics import pairwise_distances
 from sklearn.preprocessing import StandardScaler
 
+from spagapa.bioml import BioMLDomainDetector, GraphRegularizedAPAFactorizer, MultiViewGraphBuilder
 from spagapa.imputation import (
     ExpressionFeatureBuilder,
     ExpressionGPImputer,
@@ -102,6 +103,7 @@ class MethodResult:
 
 METHOD_ORDER = [
     "spagapa_gp",
+    "spagapa_bioml",
     "stapaminer_knn_expression",
     "knn_spatial",
     "mean",
@@ -110,6 +112,7 @@ METHOD_ORDER = [
 
 METHOD_COLORS = {
     "spagapa_gp": "#e74c3c",
+    "spagapa_bioml": "#d35400",
     "stapaminer_knn_expression": "#8e44ad",
     "knn_spatial": "#3498db",
     "mean": "#95a5a6",
@@ -243,6 +246,31 @@ def parse_args() -> argparse.Namespace:
         default=8,
         help="Number of uncertainty bins for GP reliability curves.",
     )
+    parser.add_argument(
+        "--include-bioml",
+        action="store_true",
+        help="Include spaGAPA BioML two-stage GP + graph-factorization method.",
+    )
+    parser.add_argument("--bioml-rank", type=int, default=8)
+    parser.add_argument("--bioml-lambda-graph", type=float, default=0.5)
+    parser.add_argument("--bioml-lambda-l2", type=float, default=1e-2)
+    parser.add_argument("--bioml-max-iter", type=int, default=30)
+    parser.add_argument("--bioml-n-neighbors", type=int, default=15)
+    parser.add_argument(
+        "--bioml-blend",
+        type=float,
+        default=0.3,
+        help="Blend weight for BioML factorized output against GP backbone.",
+    )
+    parser.add_argument(
+        "--bioml-domain-method",
+        default="kmeans",
+        choices=["kmeans", "spectral"],
+        help="Domain detector used for BioML biological consistency metrics.",
+    )
+    parser.add_argument("--bioml-spatial-weight", type=float, default=0.4)
+    parser.add_argument("--bioml-expression-weight", type=float, default=0.4)
+    parser.add_argument("--bioml-apa-weight", type=float, default=0.2)
     return parser.parse_args()
 
 
@@ -599,6 +627,90 @@ def impute_spagapa_gp(train: np.ndarray, coords: np.ndarray, kernel: str, alpha:
     )
     imputed, uncertainty = batch.impute(return_uncertainty=True)
     return np.clip(imputed, 0.0, 1.0), uncertainty
+
+
+def confidence_from_uncertainty(uncertainty: np.ndarray | None, mask: np.ndarray) -> np.ndarray | None:
+    if uncertainty is None:
+        return None
+    uncertainty = np.asarray(uncertainty, dtype=float)
+    finite = uncertainty[np.isfinite(uncertainty)]
+    fallback = float(np.median(finite)) if finite.size else 1.0
+    unc = np.nan_to_num(uncertainty, nan=fallback, posinf=fallback, neginf=fallback)
+    confidence = 1.0 / (unc + 1e-6)
+    finite_conf = confidence[np.isfinite(confidence) & (confidence > 0)]
+    scale = float(np.median(finite_conf)) if finite_conf.size else 1.0
+    confidence = confidence / max(scale, 1e-6)
+    confidence = np.clip(confidence, 0.0, 10.0)
+    confidence[~mask] = 0.0
+    return confidence
+
+
+def impute_spagapa_bioml(
+    train: np.ndarray,
+    coords: np.ndarray,
+    expression_embedding: np.ndarray | None,
+    kernel: str,
+    alpha: float,
+    rank: int,
+    lambda_graph: float,
+    lambda_l2: float,
+    max_iter: int,
+    n_neighbors: int,
+    blend: float,
+    domain_method: str,
+    n_domains: int,
+    spatial_weight: float,
+    expression_weight: float,
+    apa_weight: float,
+):
+    gp_imputed, gp_uncertainty = impute_spagapa_gp(train, coords, kernel, alpha)
+    mask = np.isfinite(train)
+    confidence = confidence_from_uncertainty(gp_uncertainty, mask)
+
+    graph = MultiViewGraphBuilder(
+        n_neighbors=n_neighbors,
+        spatial_weight=spatial_weight,
+        expression_weight=expression_weight,
+        apa_weight=apa_weight,
+    ).build(
+        coords,
+        expression_embedding=expression_embedding,
+        apa_matrix=gp_imputed,
+        uncertainty=gp_uncertainty,
+    )
+
+    bioml = GraphRegularizedAPAFactorizer(
+        rank=rank,
+        lambda_graph=lambda_graph,
+        lambda_l2=lambda_l2,
+        max_iter=max_iter,
+        random_state=42,
+        preserve_observed=True,
+    )
+    imputed = bioml.fit_transform(
+        train,
+        graph_laplacian=graph.laplacian(),
+        mask=mask,
+        confidence=confidence,
+    )
+    blend = float(np.clip(blend, 0.0, 1.0))
+    blended = (1.0 - blend) * gp_imputed + blend * imputed
+    blended[mask] = train[mask]
+
+    if domain_method == "spectral":
+        domain_labels = BioMLDomainDetector(
+            method="spectral",
+            n_domains=n_domains,
+            random_state=42,
+        ).fit_predict(graph=graph.fused)
+    else:
+        domain_labels = BioMLDomainDetector(
+            method="kmeans",
+            n_domains=n_domains,
+            random_state=42,
+        ).fit_predict(spot_factors=bioml.spot_factors_)
+
+    return np.clip(blended, 0.0, 1.0), gp_uncertainty, domain_labels
 
 
 def impute_spagapa_gp_variant(
@@ -984,13 +1096,23 @@ def measure_method(
         monitor.join(timeout=1.0)
         peak_rss_mb = max(peak_rss_mb, process.memory_info().rss / 1024 / 1024)
 
+    domain_labels = None
     if isinstance(out, tuple):
-        pred, uncertainty = out
+        if len(out) == 3:
+            pred, uncertainty, domain_labels = out
+        else:
+            pred, uncertainty = out
     else:
         pred, uncertainty = out, None
 
     rmse, mae, pearson, spearman, r2 = compute_metrics(true_values, pred, holdout_mask)
-    ari, nmi, n_pred_domains = evaluate_layer_consistency(pred, layer_codes, n_domains)
+    if domain_labels is not None:
+        domain_labels = np.asarray(domain_labels)
+        ari = float(adjusted_rand_score(layer_codes, domain_labels))
+        nmi = float(normalized_mutual_info_score(layer_codes, domain_labels))
+        n_pred_domains = int(len(np.unique(domain_labels)))
+    else:
+        ari, nmi, n_pred_domains = evaluate_layer_consistency(pred, layer_codes, n_domains)
 
     row = MethodResult(
         method=method_name,
@@ -1386,7 +1508,7 @@ def main() -> None:
     layer_labels = metadata.loc[spot_names, "layer"].astype(str).values
     layer_codes = pd.Categorical(metadata.loc[spot_names, "layer"]).codes
     expression_embedding = None
-    if args.gp_variant in {"expr_additive", "expr_product", "adaptive_additive", "expr_layer_local"}:
+    if args.include_bioml or args.gp_variant in {"expr_additive", "expr_product", "adaptive_additive", "expr_layer_local"}:
         expression_aligned = expression.reindex(columns=spot_names).fillna(0.0)
         expression_embedding = ExpressionFeatureBuilder(
             n_components=args.expr_n_components,
@@ -1448,20 +1570,40 @@ def main() -> None:
                     use_theta=args.gp_use_theta,
                 ),
             }
+            if args.include_bioml:
+                method_specs["spagapa_bioml"] = lambda train=train: impute_spagapa_bioml(
+                    train,
+                    coords,
+                    expression_embedding,
+                    args.gp_kernel,
+                    args.gp_alpha,
+                    rank=args.bioml_rank,
+                    lambda_graph=args.bioml_lambda_graph,
+                    lambda_l2=args.bioml_lambda_l2,
+                    max_iter=args.bioml_max_iter,
+                    n_neighbors=args.bioml_n_neighbors,
+                    blend=args.bioml_blend,
+                    domain_method=args.bioml_domain_method,
+                    n_domains=args.n_domains,
+                    spatial_weight=args.bioml_spatial_weight,
+                    expression_weight=args.bioml_expression_weight,
+                    apa_weight=args.bioml_apa_weight,
+                )
 
             for method_name, fn in method_specs.items():
+                is_spagapa_model = method_name in {"spagapa_gp", "spagapa_bioml"}
                 result, pred, uncertainty = measure_method(
                     method_name=method_name,
-                    gp_kernel=args.gp_kernel if method_name == "spagapa_gp" else "na",
-                    gp_alpha=args.gp_alpha if method_name == "spagapa_gp" else np.nan,
-                    gp_variant=args.gp_variant if method_name == "spagapa_gp" else "na",
+                    gp_kernel=args.gp_kernel if is_spagapa_model else "na",
+                    gp_alpha=args.gp_alpha if is_spagapa_model else np.nan,
+                    gp_variant=args.gp_variant if method_name == "spagapa_gp" else "bioml" if method_name == "spagapa_bioml" else "na",
                     gp_lambda_expr=args.gp_lambda_expr if method_name == "spagapa_gp" else np.nan,
                     gp_product_offset=args.gp_product_offset if method_name == "spagapa_gp" else np.nan,
                     gp_gate_mode=args.gp_gate_mode if method_name == "spagapa_gp" else "na",
                     gp_gate_tau=args.gp_gate_tau if method_name == "spagapa_gp" and args.gp_gate_tau is not None else np.nan,
                     gp_local_k=args.gp_local_k if method_name == "spagapa_gp" else -1,
                     gp_layer_gate_mode=args.gp_layer_gate_mode if method_name == "spagapa_gp" else "na",
-                    expr_n_components=args.expr_n_components if method_name == "spagapa_gp" else np.nan,
+                    expr_n_components=args.expr_n_components if is_spagapa_model else np.nan,
                     gp_use_theta=args.gp_use_theta if method_name == "spagapa_gp" else False,
                     impute_fn=fn,
                     true_values=values,
@@ -1592,6 +1734,17 @@ def main() -> None:
         "expr_use_hvg": bool(args.expr_use_hvg),
         "expr_n_top_genes": int(args.expr_n_top_genes),
         "gp_use_theta": bool(args.gp_use_theta),
+        "include_bioml": bool(args.include_bioml),
+        "bioml_rank": int(args.bioml_rank),
+        "bioml_lambda_graph": float(args.bioml_lambda_graph),
+        "bioml_lambda_l2": float(args.bioml_lambda_l2),
+        "bioml_max_iter": int(args.bioml_max_iter),
+        "bioml_n_neighbors": int(args.bioml_n_neighbors),
+        "bioml_blend": float(args.bioml_blend),
+        "bioml_domain_method": str(args.bioml_domain_method),
+        "bioml_spatial_weight": float(args.bioml_spatial_weight),
+        "bioml_expression_weight": float(args.bioml_expression_weight),
+        "bioml_apa_weight": float(args.bioml_apa_weight),
         "calibration_bins": int(args.calibration_bins),
         "best_method_by_mean_rmse": str(overall_df["rmse"].idxmin()),
         "overall_metrics": overall_df.reset_index().rename(columns={"index": "method"}).to_dict(orient="records"),

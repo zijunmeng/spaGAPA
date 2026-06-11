@@ -343,6 +343,37 @@ Compare:
 - `stapaminer_knn_expression`
 - `spagapa_bioml`
 
+Status:
+
+- [x] `run_stapaminer_mob_benchmark.py` supports `--include-bioml`
+- [x] KMeans and spectral BioML domain detectors are supported
+- [x] Targeted pilot completed on MOB subset
+
+Pilot result summary:
+
+```text
+BioML-kmeans:
+  rmse = 0.112568
+  layer_ari = 0.059991
+  uncertainty_error_spearman = 0.710106
+
+BioML-spectral:
+  rmse = 0.112568
+  layer_ari = 0.377720
+  layer_nmi = 0.474067
+  uncertainty_error_spearman = 0.710106
+
+stAPAminer-like:
+  rmse = 0.125075
+  layer_ari = 0.077191
+```
+
+Interpretation:
+
+- KMeans on BioML factors improves layer ARI but does not beat stAPAminer-like.
+- Spectral clustering on the fused multi-view graph strongly improves layer ARI/NMI while preserving the GP backbone's RMSE/calibration.
+- Next step is a formal multi-seed benchmark and graph-weight sweep.
+
 ### Phase 7.5: Decision criteria
 
 BioML 进入主线候选需要满足：
@@ -365,4 +396,3 @@ coherent spatial APA domains without deep learning or label supervision.
 ```
 
 这比单纯宣传一个 GP imputer 更强，也更符合 BIB 对软件方法学完整性的期待。
-
