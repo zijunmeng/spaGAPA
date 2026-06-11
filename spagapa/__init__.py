@@ -13,6 +13,7 @@ Main modules:
 - imputation: Gaussian process-based imputation with uncertainty
 - quantification: APA index calculation (RUD, PDUI, WUL)
 - analysis: Differential APA and spatial pattern analysis
+- bioml: CPU-friendly multi-view graph and factorization models
 - visualization: Plotting functions for spatial APA data
 - benchmark: Simulation and benchmarking tools
 """
@@ -57,6 +58,14 @@ from spagapa.analysis import (
     build_spatial_trajectory, analyse_apa_trajectory,
 )
 
+# BioML
+from spagapa.bioml import (
+    BioMLDomainDetector,
+    GraphRegularizedAPAFactorizer,
+    MultiViewGraph,
+    MultiViewGraphBuilder,
+)
+
 # Visualization
 from spagapa.visualization import (
     SpatialPlotter, StatisticalPlotter, QCPlotter,
@@ -90,6 +99,9 @@ __all__ = [
     "GPTrendDetector", "detect_svapa_genes_gp",
     "TrajectoryBuilder", "TrajectoryAnalyzer",
     "build_spatial_trajectory", "analyse_apa_trajectory",
+    # BioML
+    "BioMLDomainDetector", "GraphRegularizedAPAFactorizer",
+    "MultiViewGraph", "MultiViewGraphBuilder",
     # Visualization
     "SpatialPlotter", "StatisticalPlotter", "QCPlotter",
     # Pipeline

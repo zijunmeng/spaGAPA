@@ -71,8 +71,8 @@ Repository = "https://github.com/yourusername/spaGAPA"
 [project.scripts]
 spagapa = "spagapa.cli:main"
 
-[tool.setuptools]
-packages = ["spagapa"]
+[tool.setuptools.packages.find]
+include = ["spagapa*"]
 
 [tool.setuptools.package-data]
 spagapa = ["data/*"]
