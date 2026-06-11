@@ -3,8 +3,10 @@
 import numpy as np
 import pandas as pd
 import pytest
+from click.testing import CliRunner
 
 from spagapa import APADataset, SpaGAPA
+from spagapa.cli import main as cli_main
 from spagapa.io import load_spatial_dataset
 
 
@@ -100,3 +102,119 @@ def test_load_spatial_dataset_from_tables(tmp_path):
     assert loaded.raw_counts.shape == dataset.raw_counts.shape
     np.testing.assert_allclose(loaded.raw_counts, dataset.raw_counts)
     np.testing.assert_allclose(loaded.coords, dataset.coords)
+
+
+def test_pipeline_toy_bioml_mainline():
+    dataset = make_toy_dataset(n_genes=5, grid_size=5)
+    rng = np.random.default_rng(42)
+    expression_embedding = np.column_stack(
+        [
+            dataset.coords[:, 0],
+            dataset.coords[:, 1],
+            rng.normal(scale=0.01, size=dataset.n_spots),
+        ]
+    )
+
+    pipeline = SpaGAPA(
+        kernel_type='matern',
+        n_neighbors=4,
+        min_spots=3,
+        use_bioml=True,
+        bioml_rank=3,
+        bioml_max_iter=4,
+        bioml_n_neighbors=4,
+        expression_n_components=3,
+        verbose=False,
+    )
+
+    results = pipeline.run(
+        dataset=dataset,
+        expression_embedding=expression_embedding,
+        impute=True,
+        quantify=True,
+        identify_domains=True,
+        use_bioml=True,
+        differential_analysis=False,
+        detect_svapa=False,
+        n_domains=2,
+    )
+
+    domains = results['domains']
+    assert domains['method'] == 'spagapa_bioml'
+    assert domains['labels'].shape == (dataset.n_spots,)
+    assert domains['imputed_values'].shape == (dataset.n_genes, dataset.n_spots)
+    assert domains['spot_factors'].shape == (dataset.n_spots, 3)
+    assert results['dataset'].has_bioml()
+    assert results['dataset'].bioml_imputed.shape == (dataset.n_genes, dataset.n_spots)
+    assert results['dataset'].adata.uns['apa']['bioml']['has_expression_view'] is True
+
+
+def test_cli_run_with_bioml_from_tables(tmp_path):
+    dataset = make_toy_dataset(n_genes=4, grid_size=4)
+    matrix = pd.DataFrame(
+        dataset.raw_counts,
+        index=dataset.gene_names,
+        columns=dataset.spot_names,
+    )
+    coords = pd.DataFrame(
+        {
+            'barcode': dataset.spot_names,
+            'x': dataset.coords[:, 0],
+            'y': dataset.coords[:, 1],
+        }
+    )
+    expression = pd.DataFrame(
+        np.vstack(
+            [
+                dataset.coords[:, 0],
+                dataset.coords[:, 1],
+                dataset.coords[:, 0] + dataset.coords[:, 1],
+                np.ones(dataset.n_spots),
+            ]
+        ),
+        index=[f"Expr_{i}" for i in range(4)],
+        columns=dataset.spot_names,
+    )
+
+    matrix_file = tmp_path / "apa_matrix.csv"
+    coords_file = tmp_path / "coordinates.csv"
+    expression_file = tmp_path / "expression.csv"
+    output_dir = tmp_path / "cli_results"
+    matrix.to_csv(matrix_file)
+    coords.to_csv(coords_file, index=False)
+    expression.to_csv(expression_file)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_main,
+        [
+            'run',
+            '--apa-matrix',
+            str(matrix_file),
+            '--coordinates',
+            str(coords_file),
+            '--expression-matrix',
+            str(expression_file),
+            '--enable-bioml',
+            '--no-svapa',
+            '--n-domains',
+            '2',
+            '--bioml-rank',
+            '3',
+            '--bioml-max-iter',
+            '3',
+            '--bioml-n-neighbors',
+            '4',
+            '--n-neighbors',
+            '4',
+            '--output',
+            str(output_dir),
+            '--quiet',
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (output_dir / "dataset.h5ad").exists()
+    assert (output_dir / "domains.csv").exists()
+    assert (output_dir / "bioml_metadata.json").exists()
+    assert (output_dir / "bioml_spot_factors.npy").exists()

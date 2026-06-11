@@ -310,22 +310,43 @@ from spagapa import SpaGAPA
 
 spa = SpaGAPA(
     n_neighbors=6,
-    gp_kernel='matern',
-    n_domains=5,
-    diff_method='wilcoxon',
-    svapa_fdr=0.05
+    kernel_type='matern',
+    use_bioml=True,
+    bioml_domain_method='spectral',
+    bioml_spatial_weight=0.4,
+    bioml_expression_weight=0.4,
+    bioml_apa_weight=0.2,
 )
 
 results = spa.run(
     apa_matrix=apa_matrix,
     coordinates=coords,
-    gene_names=gene_names
+    expression_matrix=expression_matrix,  # optional but recommended for BioML
+    n_domains=5,
+    differential_analysis=True,
+    fdr_threshold=0.05,
 )
 
-print(results['domain_labels'])
-print(results['differential_apa'].head())
-print(results['svapa_genes'][:10])
+print(results['domains']['labels'])
+print(results['differential'])
+print(results['svapa_genes'].head())
+spa.save_results('spagapa_results')
 ```
+
+Command line:
+
+```bash
+spagapa run \
+  --apa-matrix apa_matrix.csv \
+  --coordinates coordinates.csv \
+  --expression-matrix expression_matrix.csv \
+  --enable-bioml \
+  --bioml-domain-method spectral \
+  --n-domains 5 \
+  --output spagapa_results
+```
+
+BioML-enabled runs save `domains.csv`, `bioml_metadata.json`, `bioml_spot_factors.npy`, `bioml_gene_factors.npy`, and `bioml_imputed_values.npy` in the output directory.
 
 ---
 

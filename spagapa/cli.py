@@ -71,12 +71,46 @@ _opt_uncertainty = click.option(
 @main.command()
 @click.option('--bam', '-b', default=None, help='Path to BAM file.')
 @click.option('--annotation', '-a', default=None, help='Path to GTF/GFF annotation.')
+@click.option('--apa-matrix', '-m', default=None, help='Path to APA matrix CSV/TSV/NPY.')
+@click.option('--matrix-orientation', default='genes_by_spots', show_default=True,
+              type=click.Choice(['genes_by_spots', 'spots_by_genes']),
+              help='Orientation of --apa-matrix.')
 @_opt_coords
 @click.option('--dataset', '-d', default=None,
               help='Path to saved APADataset (.h5ad).')
+@click.option('--expression-matrix', default=None,
+              help='Optional expression matrix CSV/TSV/NPY for BioML.')
+@click.option('--expression-orientation', default='genes_by_spots', show_default=True,
+              type=click.Choice(['genes_by_spots', 'spots_by_genes']),
+              help='Orientation of --expression-matrix.')
 @click.option('--no-impute', is_flag=True, help='Skip GP imputation.')
 @click.option('--no-quantify', is_flag=True, help='Skip APA quantification.')
 @click.option('--no-domains', is_flag=True, help='Skip domain identification.')
+@click.option('--enable-bioml/--disable-bioml', default=False, show_default=True,
+              help='Use BioML multi-view graph domain recovery.')
+@click.option('--bioml-domain-method', default='spectral', show_default=True,
+              type=click.Choice(['spectral', 'kmeans']),
+              help='BioML domain detector.')
+@click.option('--bioml-rank', default=8, show_default=True,
+              help='BioML low-rank dimension.')
+@click.option('--bioml-lambda-graph', default=0.5, show_default=True,
+              help='BioML graph regularization strength.')
+@click.option('--bioml-lambda-l2', default=1e-2, show_default=True,
+              help='BioML ridge regularization strength.')
+@click.option('--bioml-max-iter', default=20, show_default=True,
+              help='BioML maximum ALS iterations.')
+@click.option('--bioml-n-neighbors', default=15, show_default=True,
+              help='BioML graph KNN size.')
+@click.option('--bioml-blend', default=0.1, show_default=True,
+              help='Blend BioML factorized matrix into GP imputed values.')
+@click.option('--bioml-spatial-weight', default=0.4, show_default=True,
+              help='BioML spatial graph weight.')
+@click.option('--bioml-expression-weight', default=0.4, show_default=True,
+              help='BioML expression graph weight.')
+@click.option('--bioml-apa-weight', default=0.2, show_default=True,
+              help='BioML APA graph weight.')
+@click.option('--expression-n-components', default=10, show_default=True,
+              help='PCA dimensions for --expression-matrix.')
 @click.option('--diff', is_flag=True, help='Enable differential analysis.')
 @click.option('--no-svapa', is_flag=True, help='Skip SVAPA detection.')
 @click.option('--n-domains', default=None, type=int, help='Number of spatial domains.')
@@ -102,17 +136,34 @@ def run(**kwargs):
         n_neighbors=kwargs['n_neighbors'],
         kernel_type=kwargs['kernel'],
         use_sparse_gp=kwargs['sparse'],
+        use_bioml=kwargs['enable_bioml'],
+        bioml_rank=kwargs['bioml_rank'],
+        bioml_lambda_graph=kwargs['bioml_lambda_graph'],
+        bioml_lambda_l2=kwargs['bioml_lambda_l2'],
+        bioml_max_iter=kwargs['bioml_max_iter'],
+        bioml_n_neighbors=kwargs['bioml_n_neighbors'],
+        bioml_blend=kwargs['bioml_blend'],
+        bioml_domain_method=kwargs['bioml_domain_method'],
+        bioml_spatial_weight=kwargs['bioml_spatial_weight'],
+        bioml_expression_weight=kwargs['bioml_expression_weight'],
+        bioml_apa_weight=kwargs['bioml_apa_weight'],
+        expression_n_components=kwargs['expression_n_components'],
         verbose=kwargs['verbose'],
     )
 
     results = spa.run(
         bam_file=kwargs['bam'],
+        apa_matrix=kwargs['apa_matrix'],
         coordinates=kwargs['coordinates'],
         annotation=kwargs['annotation'],
+        matrix_orientation=kwargs['matrix_orientation'],
+        expression_matrix=kwargs['expression_matrix'],
+        expression_orientation=kwargs['expression_orientation'],
         dataset=dataset,
         impute=not kwargs['no_impute'],
         quantify=not kwargs['no_quantify'],
         identify_domains=not kwargs['no_domains'],
+        use_bioml=kwargs['enable_bioml'],
         differential_analysis=kwargs['diff'],
         detect_svapa=not kwargs['no_svapa'],
         n_domains=kwargs['n_domains'],
@@ -132,6 +183,8 @@ def run(**kwargs):
     domains = results.get('domains')
     if domains is not None:
         click.echo(f"   Spatial domains: {domains['n_domains']}")
+        if domains.get('method') == 'spagapa_bioml':
+            click.echo(f"   BioML domain method: {domains.get('domain_method')}")
 
     qc = results.get('qc_report')
     if qc and isinstance(qc, dict):

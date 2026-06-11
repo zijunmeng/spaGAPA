@@ -7,7 +7,7 @@
 [![Tests](https://img.shields.io/badge/tests-268%20passing-brightgreen)]()
 [![Status](https://img.shields.io/badge/status-beta-orange)]()
 
-spaGAPA is a Python toolkit for analysing **alternative polyadenylation (APA)** in spatial transcriptomics data. It combines spatial-aware APA site validation with Gaussian process imputation to deliver accurate, uncertainty-quantified APA analysis.
+spaGAPA is a Python toolkit for analysing **alternative polyadenylation (APA)** in spatial transcriptomics data. It combines spatial-aware APA site validation, Gaussian process imputation, uncertainty quantification, and CPU-friendly multi-view graph machine learning for biologically coherent APA domain recovery.
 
 ---
 
@@ -19,7 +19,7 @@ spaGAPA is a Python toolkit for analysing **alternative polyadenylation (APA)** 
 | Imputation | GP with uncertainty | Simple KNN |
 | Spatial patterns | Moran's I + GP trend | Basic |
 | Uncertainty estimates | ✅ | ❌ |
-| Domain identification | K-means / Leiden | Manual |
+| Domain identification | GP + BioML multi-view graph | Manual / KNN |
 
 ---
 
@@ -71,6 +71,21 @@ ax = plot_spatial_apa(coords, observed[0], gene_name='Gene_0')
 ax = plot_volcano(results['log2fc'].values, results['padj'].values)
 ```
 
+### CLI with BioML domains
+
+```bash
+spagapa run \
+  --apa-matrix apa_matrix.csv \
+  --coordinates coordinates.csv \
+  --expression-matrix expression_matrix.csv \
+  --enable-bioml \
+  --bioml-domain-method spectral \
+  --n-domains 5 \
+  --output spagapa_results
+```
+
+BioML outputs include `domains.csv`, `bioml_metadata.json`, `bioml_spot_factors.npy`, and `bioml_imputed_values.npy`.
+
 ---
 
 ## Analysis workflow
@@ -88,7 +103,7 @@ GP Imputation               ← Matérn kernel, uncertainty estimates
 APA Quantification          ← RUD, PDUI, WUL indices
       │
       ▼
-Domain Identification       ← K-means / Leiden clustering
+Domain Identification       ← BioML multi-view graph / K-means
       │
       ├─► Differential APA  ← Wilcoxon / t-test, FDR correction
       │

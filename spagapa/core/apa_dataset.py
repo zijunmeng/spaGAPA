@@ -44,7 +44,10 @@ class APADataset:
     _LAYER_RAW = 'apa_counts'
     _LAYER_IMPUTED = 'apa_imputed'
     _LAYER_UNCERTAINTY = 'apa_uncertainty'
+    _LAYER_BIOML_IMPUTED = 'apa_bioml_imputed'
     _OBSM_SPATIAL = 'spatial'
+    _OBSM_BIOML_FACTORS = 'bioml_factors'
+    _VARM_BIOML_GENE_FACTORS = 'bioml_gene_factors'
 
     def __init__(self, adata: Optional['anndata.AnnData'] = None):
         if not ANNDATA_AVAILABLE:
@@ -128,6 +131,14 @@ class APADataset:
             return self.adata.layers[layer].T
         return None
 
+    @property
+    def bioml_imputed(self) -> Optional[np.ndarray]:
+        """BioML-refined APA values, shape (n_genes, n_spots)."""
+        layer = self._LAYER_BIOML_IMPUTED
+        if layer in self.adata.layers:
+            return self.adata.layers[layer].T
+        return None
+
     # ── status checks ────────────────────────────────────────────────
 
     def has_imputed(self) -> bool:
@@ -135,6 +146,9 @@ class APADataset:
 
     def has_uncertainty(self) -> bool:
         return self._LAYER_UNCERTAINTY in self.adata.layers
+
+    def has_bioml(self) -> bool:
+        return self._LAYER_BIOML_IMPUTED in self.adata.layers or self._OBSM_BIOML_FACTORS in self.adata.obsm
 
     def has_raw_counts(self) -> bool:
         return self._LAYER_RAW in self.adata.layers
@@ -196,6 +210,47 @@ class APADataset:
         if uncertainty is not None:
             self.adata.layers[self._LAYER_UNCERTAINTY] = uncertainty.T
         logger.info(f"Stored imputed values; uncertainty={'yes' if uncertainty is not None else 'no'}")
+
+    def set_bioml_results(
+        self,
+        imputed: Optional[np.ndarray] = None,
+        spot_factors: Optional[np.ndarray] = None,
+        gene_factors: Optional[np.ndarray] = None,
+        metadata: Optional[Dict] = None,
+    ):
+        """
+        Store BioML outputs in AnnData-compatible locations.
+
+        Parameters
+        ----------
+        imputed : np.ndarray, optional, shape (n_genes, n_spots)
+            BioML-refined APA matrix.
+        spot_factors : np.ndarray, optional, shape (n_spots, rank)
+            Spot-level BioML embedding.
+        gene_factors : np.ndarray, optional, shape (n_genes, rank)
+            Gene-level BioML embedding.
+        metadata : dict, optional
+            Parameters and graph metadata for reproducibility.
+        """
+        if imputed is not None:
+            imputed = np.asarray(imputed)
+            if imputed.shape != (self.n_genes, self.n_spots):
+                raise ValueError("imputed must have shape (n_genes, n_spots)")
+            self.adata.layers[self._LAYER_BIOML_IMPUTED] = imputed.T
+
+        if spot_factors is not None:
+            spot_factors = np.asarray(spot_factors)
+            if spot_factors.shape[0] != self.n_spots:
+                raise ValueError("spot_factors must have n_spots rows")
+            self.adata.obsm[self._OBSM_BIOML_FACTORS] = spot_factors
+
+        if gene_factors is not None:
+            gene_factors = np.asarray(gene_factors)
+            if gene_factors.shape[0] != self.n_genes:
+                raise ValueError("gene_factors must have n_genes rows")
+            self.adata.varm[self._VARM_BIOML_GENE_FACTORS] = gene_factors
+
+        self.adata.uns['apa']['bioml'] = metadata or {}
 
     # ── spatial coords ───────────────────────────────────────────────
 

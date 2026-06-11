@@ -8,6 +8,7 @@ All downstream analyses support uncertainty weighting when available.
 
 import numpy as np
 import pandas as pd
+import json
 from typing import Optional, Dict, List, Union, Tuple
 from pathlib import Path
 import warnings
@@ -16,7 +17,8 @@ from spagapa.core import APADataset
 from spagapa.io import load_spatial_dataset
 from spagapa.spatial import SpatialNeighbors
 from spagapa.calling import SpatialValidator, QualityFilter
-from spagapa.imputation import GPImputer, SparseGPImputer
+from spagapa.imputation import GPImputer, SparseGPImputer, ExpressionFeatureBuilder
+from spagapa.bioml import BioMLDomainDetector, GraphRegularizedAPAFactorizer, MultiViewGraphBuilder
 from spagapa.quantification import APAIndexCalculator, QCReportGenerator
 from spagapa.analysis import (
     DomainIdentifier,
@@ -58,6 +60,14 @@ class SpaGAPA:
         Minimum read count per site.
     min_spots : int, default=5
         Minimum spots for quality filtering.
+    use_bioml : bool, default=False
+        Use CPU-friendly BioML multi-view graph domain recovery.
+    bioml_rank : int, default=8
+        Low-rank dimension for BioML APA factorization.
+    bioml_domain_method : {'spectral', 'kmeans'}, default='spectral'
+        Domain detector for BioML outputs.
+    bioml_spatial_weight, bioml_expression_weight, bioml_apa_weight : float
+        Multi-view graph fusion weights.
     verbose : bool, default=True
         Print progress.
     """
@@ -72,6 +82,18 @@ class SpaGAPA:
         min_spatial_support: float = 0.3,
         min_read_count: int = 10,
         min_spots: int = 5,
+        use_bioml: bool = False,
+        bioml_rank: int = 8,
+        bioml_lambda_graph: float = 0.5,
+        bioml_lambda_l2: float = 1e-2,
+        bioml_max_iter: int = 20,
+        bioml_n_neighbors: int = 15,
+        bioml_blend: float = 0.1,
+        bioml_domain_method: str = 'spectral',
+        bioml_spatial_weight: float = 0.4,
+        bioml_expression_weight: float = 0.4,
+        bioml_apa_weight: float = 0.2,
+        expression_n_components: int = 10,
         verbose: bool = True,
     ):
         self.n_neighbors = n_neighbors
@@ -82,6 +104,18 @@ class SpaGAPA:
         self.min_spatial_support = min_spatial_support
         self.min_read_count = min_read_count
         self.min_spots = min_spots
+        self.use_bioml = bool(use_bioml)
+        self.bioml_rank = int(bioml_rank)
+        self.bioml_lambda_graph = float(bioml_lambda_graph)
+        self.bioml_lambda_l2 = float(bioml_lambda_l2)
+        self.bioml_max_iter = int(bioml_max_iter)
+        self.bioml_n_neighbors = int(bioml_n_neighbors)
+        self.bioml_blend = float(bioml_blend)
+        self.bioml_domain_method = bioml_domain_method
+        self.bioml_spatial_weight = float(bioml_spatial_weight)
+        self.bioml_expression_weight = float(bioml_expression_weight)
+        self.bioml_apa_weight = float(bioml_apa_weight)
+        self.expression_n_components = int(expression_n_components)
         self.verbose = verbose
 
         self.dataset_: Optional[APADataset] = None
@@ -125,6 +159,173 @@ class SpaGAPA:
         if self.input_type == 'apa_index':
             return finite
         return finite & (values > 0)
+
+    def _load_expression_matrix(
+        self,
+        expression_matrix: Optional[Union[str, np.ndarray, pd.DataFrame]],
+    ) -> Optional[Union[np.ndarray, pd.DataFrame]]:
+        """Load an optional expression matrix while preserving table labels."""
+        if expression_matrix is None:
+            return None
+        if isinstance(expression_matrix, (np.ndarray, pd.DataFrame)):
+            return expression_matrix
+
+        path = Path(expression_matrix)
+        if path.suffix.lower() == '.npy':
+            return np.load(path)
+
+        sep = '\t' if path.suffix.lower() in {'.tsv', '.txt'} else ','
+        return pd.read_csv(path, sep=sep, index_col=0)
+
+    def _build_expression_embedding(
+        self,
+        expression_matrix: Optional[Union[str, np.ndarray, pd.DataFrame]],
+        expression_embedding: Optional[np.ndarray],
+        expression_orientation: str,
+    ) -> Optional[np.ndarray]:
+        """Return a spot-level expression embedding for BioML."""
+        if expression_embedding is not None:
+            embedding = np.asarray(expression_embedding, dtype=float)
+            if embedding.ndim != 2:
+                raise ValueError("expression_embedding must be 2-dimensional")
+            if embedding.shape[0] != self.dataset_.n_spots:
+                raise ValueError("expression_embedding must have n_spots rows")
+            return embedding
+
+        loaded = self._load_expression_matrix(expression_matrix)
+        if loaded is None:
+            return None
+
+        builder = ExpressionFeatureBuilder(
+            n_components=self.expression_n_components,
+            orientation=expression_orientation,
+        )
+        embedding = builder.fit_transform(loaded)
+        if embedding.shape[0] != self.dataset_.n_spots:
+            raise ValueError(
+                "Expression matrix produced an embedding with "
+                f"{embedding.shape[0]} spots, expected {self.dataset_.n_spots}. "
+                "Check expression_orientation."
+            )
+        return embedding
+
+    @staticmethod
+    def _confidence_from_uncertainty(
+        uncertainty: Optional[np.ndarray],
+        mask: np.ndarray,
+    ) -> Optional[np.ndarray]:
+        """Convert GP uncertainty to bounded confidence weights."""
+        if uncertainty is None:
+            return None
+        uncertainty = np.asarray(uncertainty, dtype=float)
+        finite = uncertainty[np.isfinite(uncertainty)]
+        fallback = float(np.median(finite)) if finite.size else 1.0
+        unc = np.nan_to_num(uncertainty, nan=fallback, posinf=fallback, neginf=fallback)
+        confidence = 1.0 / (unc + 1e-6)
+        finite_conf = confidence[np.isfinite(confidence) & (confidence > 0)]
+        scale = float(np.median(finite_conf)) if finite_conf.size else 1.0
+        confidence = confidence / max(scale, 1e-6)
+        confidence = np.clip(confidence, 0.0, 10.0)
+        confidence[~mask] = 0.0
+        return confidence
+
+    def _run_bioml(
+        self,
+        work: np.ndarray,
+        coords: np.ndarray,
+        uncertainty: Optional[np.ndarray],
+        expression_embedding: Optional[np.ndarray],
+        n_domains: int,
+    ) -> Tuple[np.ndarray, Dict]:
+        """Run CPU-friendly BioML refinement and domain recovery."""
+        mask = self._training_mask(self.dataset_.raw_counts)
+        confidence = self._confidence_from_uncertainty(uncertainty, mask)
+
+        graph = MultiViewGraphBuilder(
+            n_neighbors=self.bioml_n_neighbors,
+            spatial_weight=self.bioml_spatial_weight,
+            expression_weight=self.bioml_expression_weight,
+            apa_weight=self.bioml_apa_weight,
+        ).build(
+            coords,
+            expression_embedding=expression_embedding,
+            apa_matrix=work,
+            uncertainty=uncertainty,
+        )
+
+        factorizer = GraphRegularizedAPAFactorizer(
+            rank=self.bioml_rank,
+            lambda_graph=self.bioml_lambda_graph,
+            lambda_l2=self.bioml_lambda_l2,
+            max_iter=self.bioml_max_iter,
+            random_state=42,
+            preserve_observed=True,
+        )
+        bioml_imputed = factorizer.fit_transform(
+            self.dataset_.raw_counts,
+            graph_laplacian=graph.laplacian(),
+            mask=mask,
+            confidence=confidence,
+        )
+
+        blend = float(np.clip(self.bioml_blend, 0.0, 1.0))
+        refined = (1.0 - blend) * work + blend * bioml_imputed
+        refined[mask] = self.dataset_.raw_counts[mask]
+        refined = self._clip_apa_values(refined)
+
+        if self.bioml_domain_method == 'spectral':
+            labels = BioMLDomainDetector(
+                method='spectral',
+                n_domains=n_domains,
+                random_state=42,
+            ).fit_predict(graph=graph.fused)
+        elif self.bioml_domain_method == 'kmeans':
+            labels = BioMLDomainDetector(
+                method='kmeans',
+                n_domains=n_domains,
+                random_state=42,
+            ).fit_predict(spot_factors=factorizer.spot_factors_)
+        else:
+            raise ValueError("bioml_domain_method must be 'spectral' or 'kmeans'")
+
+        metadata = {
+            'enabled': True,
+            'domain_method': self.bioml_domain_method,
+            'n_domains': int(n_domains),
+            'rank': self.bioml_rank,
+            'lambda_graph': self.bioml_lambda_graph,
+            'lambda_l2': self.bioml_lambda_l2,
+            'max_iter': self.bioml_max_iter,
+            'n_neighbors': self.bioml_n_neighbors,
+            'blend': blend,
+            'graph_weights_requested': {
+                'spatial': self.bioml_spatial_weight,
+                'expression': self.bioml_expression_weight,
+                'apa': self.bioml_apa_weight,
+            },
+            'graph_weights_effective': graph.weights,
+            'has_expression_view': expression_embedding is not None,
+            'factorization_n_iter': int(factorizer.result_.n_iter),
+            'factorization_reconstruction_error': float(factorizer.result_.reconstruction_error),
+        }
+
+        self.dataset_.set_bioml_results(
+            imputed=refined,
+            spot_factors=factorizer.spot_factors_,
+            gene_factors=factorizer.gene_factors_,
+            metadata=metadata,
+        )
+
+        return labels, {
+            'labels': labels,
+            'n_domains': n_domains,
+            'method': 'spagapa_bioml',
+            'domain_method': self.bioml_domain_method,
+            'imputed_values': refined,
+            'spot_factors': factorizer.spot_factors_,
+            'gene_factors': factorizer.gene_factors_,
+            'metadata': metadata,
+        }
 
     def _calculate_apa_indices(self, work: np.ndarray) -> Dict[str, Union[np.ndarray, bool, str]]:
         """
@@ -181,10 +382,14 @@ class SpaGAPA:
         apa_matrix: Optional[Union[str, np.ndarray, pd.DataFrame]] = None,
         h5ad_file: Optional[str] = None,
         matrix_orientation: str = 'genes_by_spots',
+        expression_matrix: Optional[Union[str, np.ndarray, pd.DataFrame]] = None,
+        expression_orientation: str = 'genes_by_spots',
+        expression_embedding: Optional[np.ndarray] = None,
         dataset: Optional[APADataset] = None,
         impute: bool = True,
         quantify: bool = True,
         identify_domains: bool = True,
+        use_bioml: Optional[bool] = None,
         differential_analysis: bool = False,
         detect_svapa: bool = True,
         n_domains: Optional[int] = None,
@@ -209,6 +414,13 @@ class SpaGAPA:
             Existing H5AD file to load.
         matrix_orientation : str, default='genes_by_spots'
             Orientation of apa_matrix: 'genes_by_spots' or 'spots_by_genes'.
+        expression_matrix : str or array-like, optional
+            Optional expression matrix for BioML expression-view graph.
+        expression_orientation : str, default='genes_by_spots'
+            Orientation of expression_matrix: 'genes_by_spots' or 'spots_by_genes'.
+        expression_embedding : np.ndarray, optional
+            Precomputed spot-level expression embedding with shape
+            (n_spots, n_features).
         dataset : APADataset, optional
             Pre-loaded dataset (alternative to bam_file).
         impute : bool, default=True
@@ -217,6 +429,8 @@ class SpaGAPA:
             Calculate APA indices.
         identify_domains : bool, default=True
             Identify spatial domains.
+        use_bioml : bool, optional
+            Override ``self.use_bioml`` for this run.
         differential_analysis : bool, default=False
             Perform differential analysis.
         detect_svapa : bool, default=True
@@ -239,6 +453,7 @@ class SpaGAPA:
         self._log("=" * 60)
         self._log("spaGAPA: Spatial GP-based APA Analyzer")
         self._log("=" * 60)
+        use_bioml_this_run = self.use_bioml if use_bioml is None else bool(use_bioml)
 
         # ── Step 1: Load data ──
         self._log("\n[1/7] Loading data...")
@@ -350,24 +565,45 @@ class SpaGAPA:
             if n_domains is None:
                 n_domains = min(5, max(2, self.dataset_.n_spots // 20))
 
-            domain_id = DomainIdentifier(
-                method='kmeans',
-                n_clusters=n_domains,
-                min_domain_size=self.min_spots,
-            )
-            domain_labels = domain_id.identify_domains(
-                work,
-                coords,
-                uncertainty=uncertainty if use_uw else None,
-            )
+            if use_bioml_this_run:
+                self._log(
+                    "  BioML enabled "
+                    f"(domain_method={self.bioml_domain_method}, "
+                    f"rank={self.bioml_rank})"
+                )
+                expr_embedding = self._build_expression_embedding(
+                    expression_matrix,
+                    expression_embedding,
+                    expression_orientation,
+                )
+                domain_labels, domain_result = self._run_bioml(
+                    work,
+                    coords,
+                    uncertainty if use_uw else None,
+                    expr_embedding,
+                    n_domains,
+                )
+            else:
+                domain_id = DomainIdentifier(
+                    method='kmeans',
+                    n_clusters=n_domains,
+                    min_domain_size=self.min_spots,
+                )
+                domain_labels = domain_id.identify_domains(
+                    work,
+                    coords,
+                    uncertainty=uncertainty if use_uw else None,
+                )
+                domain_result = {
+                    'labels': domain_labels,
+                    'n_domains': n_domains,
+                    'method': 'kmeans',
+                }
 
             # Store in dataset
             self.dataset_.set_domain_labels(domain_labels)
 
-            self.results_['domains'] = {
-                'labels': domain_labels,
-                'n_domains': n_domains,
-            }
+            self.results_['domains'] = domain_result
             self._log(f"  ✓ Identified {n_domains} spatial domains")
         else:
             self._log("\n[5/7] Skipping domain identification")
@@ -492,6 +728,38 @@ class SpaGAPA:
         if uncertainty is not None:
             np.save(out / "uncertainty.npy", uncertainty)
             self._log("  ✓ uncertainty.npy")
+
+        domains = self.results_.get('domains')
+        if domains is not None and domains.get('labels') is not None:
+            labels = np.asarray(domains['labels'])
+            pd.DataFrame({
+                'spot': self.dataset_.spot_names,
+                'domain': labels,
+            }).to_csv(out / "domains.csv", index=False)
+            self._log("  ✓ domains.csv")
+
+        bioml = None
+        if self.dataset_ is not None:
+            bioml = self.dataset_.adata.uns.get('apa', {}).get('bioml')
+        if bioml:
+            bioml_imputed = self.dataset_.bioml_imputed
+            if bioml_imputed is not None:
+                np.save(out / "bioml_imputed_values.npy", bioml_imputed)
+                self._log("  ✓ bioml_imputed_values.npy")
+            if self.dataset_._OBSM_BIOML_FACTORS in self.dataset_.adata.obsm:
+                np.save(
+                    out / "bioml_spot_factors.npy",
+                    self.dataset_.adata.obsm[self.dataset_._OBSM_BIOML_FACTORS],
+                )
+                self._log("  ✓ bioml_spot_factors.npy")
+            if self.dataset_._VARM_BIOML_GENE_FACTORS in self.dataset_.adata.varm:
+                np.save(
+                    out / "bioml_gene_factors.npy",
+                    self.dataset_.adata.varm[self.dataset_._VARM_BIOML_GENE_FACTORS],
+                )
+                self._log("  ✓ bioml_gene_factors.npy")
+            (out / "bioml_metadata.json").write_text(json.dumps(bioml, indent=2))
+            self._log("  ✓ bioml_metadata.json")
 
         svapa = self.results_.get('svapa_genes')
         if svapa is not None:

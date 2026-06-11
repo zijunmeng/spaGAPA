@@ -2910,6 +2910,69 @@ spaGAPA = uncertainty-calibrated spatial GP imputation
 
 ---
 
+### 23.18 BioML 已接入主 pipeline / CLI
+
+基于 formal benchmark v1 的结果，BioML 不再只是 benchmark 分支，而是已接入 spaGAPA 主线 API 和命令行。
+
+新增主线能力：
+
+```text
+SpaGAPA(..., use_bioml=True)
+SpaGAPA.run(..., expression_matrix=..., expression_embedding=..., use_bioml=True)
+spagapa run --enable-bioml --expression-matrix expression_matrix.csv
+```
+
+实现要点：
+
+- `SpaGAPA.run()` 保持旧行为兼容：
+  - 默认 `use_bioml=False`
+  - 不开启 BioML 时仍使用原 KMeans domain identification
+- 开启 BioML 后：
+  - 使用 GP imputed APA matrix 和 uncertainty
+  - 可使用 expression matrix 经 PCA 形成 spot-level expression embedding
+  - 构建 spatial / expression / APA multi-view graph
+  - 运行 graph-regularized APA factorization
+  - 用 spectral 或 kmeans BioML domain detector 输出 domains
+- 真实 layer label 不进入模型，只能用于外部评价。
+
+新增可复现输出：
+
+```text
+domains.csv
+bioml_imputed_values.npy
+bioml_spot_factors.npy
+bioml_gene_factors.npy
+bioml_metadata.json
+dataset.h5ad
+```
+
+CLI 示例：
+
+```bash
+spagapa run \
+  --apa-matrix apa_matrix.csv \
+  --coordinates coordinates.csv \
+  --expression-matrix expression_matrix.csv \
+  --enable-bioml \
+  --bioml-domain-method spectral \
+  --n-domains 5 \
+  --output spagapa_results
+```
+
+验证：
+
+```text
+conda run -n spagapa pytest tests/integration/test_pipeline_toy.py tests/unit/test_bioml.py tests/unit/test_apa_dataset.py tests/unit/test_feature_builders.py -q
+
+26 passed
+```
+
+当前判断：
+
+> BioML backbone 已完成从 benchmark branch 到正式 pipeline/CLI 的迁移。下一步应开始外部真实数据验证，优先选择有 layer/domain annotation 或可获得生物学区域标签的 spatial transcriptomics dataset，以评价 cross-dataset biological consistency 和默认 graph weight 的稳健性。
+
+---
+
 ## 24. 最终目标陈述
 
 spaGAPA 面向 BIB 的最终目标不是证明“我们写了一个包”，而是证明：
