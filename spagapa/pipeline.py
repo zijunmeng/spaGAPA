@@ -18,7 +18,13 @@ from spagapa.io import load_spatial_dataset
 from spagapa.spatial import SpatialNeighbors
 from spagapa.calling import SpatialValidator, QualityFilter
 from spagapa.imputation import GPImputer, SparseGPImputer, ExpressionFeatureBuilder
-from spagapa.bioml import BioMLDomainDetector, GraphRegularizedAPAFactorizer, MultiViewGraphBuilder
+from spagapa.bioml import (
+    BioMLDomainDetector,
+    GraphRegularizedAPAFactorizer,
+    HighResBioMLConfig,
+    MultiViewGraphBuilder,
+    highres_bioml_recover,
+)
 from spagapa.presets import (
     VALID_ANALYSIS_PRESETS,
     profile_spatial_apa_matrix,
@@ -107,6 +113,13 @@ class SpaGAPA:
         bioml_spatial_weight: float = 0.4,
         bioml_expression_weight: float = 0.4,
         bioml_apa_weight: float = 0.2,
+        highres_bioml_gp_blend: float = 0.3,
+        highres_bioml_apa_source: str = 'expression_knn',
+        highres_bioml_expression_knn_k: int = 15,
+        highres_bioml_neighbor_mode: str = 'adaptive',
+        highres_bioml_adaptive_neighbor_scale: float = 10.0,
+        highres_bioml_parent_weight: float = 0.0,
+        highres_bioml_parent_neighbors: int = 8,
         expression_n_components: int = 10,
         verbose: bool = True,
     ):
@@ -135,6 +148,13 @@ class SpaGAPA:
         self.bioml_spatial_weight = float(bioml_spatial_weight)
         self.bioml_expression_weight = float(bioml_expression_weight)
         self.bioml_apa_weight = float(bioml_apa_weight)
+        self.highres_bioml_gp_blend = float(highres_bioml_gp_blend)
+        self.highres_bioml_apa_source = highres_bioml_apa_source
+        self.highres_bioml_expression_knn_k = int(highres_bioml_expression_knn_k)
+        self.highres_bioml_neighbor_mode = highres_bioml_neighbor_mode
+        self.highres_bioml_adaptive_neighbor_scale = float(highres_bioml_adaptive_neighbor_scale)
+        self.highres_bioml_parent_weight = float(highres_bioml_parent_weight)
+        self.highres_bioml_parent_neighbors = int(highres_bioml_parent_neighbors)
         self.expression_n_components = int(expression_n_components)
         self.verbose = verbose
 
@@ -177,6 +197,7 @@ class SpaGAPA:
             'expression_weight': self.bioml_expression_weight,
             'apa_weight': self.bioml_apa_weight,
             'blend': self.bioml_blend,
+            'highres_gp_blend': self.highres_bioml_gp_blend,
         }
         if resolved_preset not in {'highres_accuracy', 'highres_fast'}:
             return params
@@ -193,6 +214,8 @@ class SpaGAPA:
 
         if resolved_preset == 'highres_fast' and abs(self.bioml_blend - 0.1) < 1e-12:
             params['blend'] = 0.0
+        if resolved_preset == 'highres_fast' and abs(self.highres_bioml_gp_blend - 0.3) < 1e-12:
+            params['highres_gp_blend'] = 0.0
         return params
 
     def _resolve_run_options(
@@ -236,6 +259,8 @@ class SpaGAPA:
                 'apa': self._active_bioml_params['apa_weight'],
             },
             'bioml_blend': self._active_bioml_params['blend'],
+            'highres_bioml_gp_blend': self._active_bioml_params['highres_gp_blend'],
+            'highres_bioml_apa_source': self.highres_bioml_apa_source,
             'notes': [],
         }
         if self.analysis_preset == 'auto':
@@ -436,6 +461,91 @@ class SpaGAPA:
             'gene_factors': factorizer.gene_factors_,
             'metadata': metadata,
         }
+
+    def _get_parent_index(self) -> Optional[np.ndarray]:
+        """Return optional parent/coarse-bin labels for high-resolution graphs."""
+        if self.dataset_ is None:
+            return None
+        obs = self.dataset_.adata.obs
+        for key in ('parent_spot', 'parent_spot_id', 'parent_index', 'parent_bin'):
+            if key in obs.columns:
+                codes, _ = pd.factorize(obs[key], sort=True)
+                return np.asarray(codes, dtype=int)
+        apa_uns = self.dataset_.adata.uns.get('apa', {})
+        parent = apa_uns.get('parent_index')
+        if parent is not None:
+            parent = np.asarray(parent, dtype=int)
+            if parent.shape[0] == self.dataset_.n_spots:
+                return parent
+        return None
+
+    def _run_highres_bioml(
+        self,
+        work: np.ndarray,
+        coords: np.ndarray,
+        uncertainty: Optional[np.ndarray],
+        expression_embedding: Optional[np.ndarray],
+        n_domains: int,
+    ) -> Tuple[np.ndarray, Dict, np.ndarray]:
+        """Run decoupled high-resolution BioML recovery."""
+        active_params = self._active_bioml_params or {
+            'spatial_weight': self.bioml_spatial_weight,
+            'expression_weight': self.bioml_expression_weight,
+            'apa_weight': self.bioml_apa_weight,
+            'blend': self.bioml_blend,
+            'highres_gp_blend': self.highres_bioml_gp_blend,
+        }
+        sparse_gp = work if self.dataset_.has_imputed() else None
+        parent_index = self._get_parent_index()
+        config = HighResBioMLConfig(
+            gp_blend=active_params['highres_gp_blend'],
+            spatial_weight=active_params['spatial_weight'],
+            expression_weight=active_params['expression_weight'],
+            apa_weight=active_params['apa_weight'],
+            apa_source=self.highres_bioml_apa_source,
+            expression_knn_k=self.highres_bioml_expression_knn_k,
+            n_neighbors=self.bioml_n_neighbors,
+            neighbor_mode=self.highres_bioml_neighbor_mode,
+            adaptive_neighbor_scale=self.highres_bioml_adaptive_neighbor_scale,
+            parent_weight=self.highres_bioml_parent_weight,
+            parent_neighbors=self.highres_bioml_parent_neighbors,
+            domain_method='spectral',
+            random_state=42,
+        )
+        result = highres_bioml_recover(
+            self.dataset_.raw_counts,
+            coords,
+            expression_embedding=expression_embedding,
+            sparse_gp=sparse_gp,
+            uncertainty=uncertainty,
+            parent_index=parent_index,
+            n_domains=n_domains,
+            config=config,
+        )
+
+        metadata = {
+            'enabled': True,
+            'mode': 'highres_bioml',
+            'domain_method': 'spectral',
+            'n_domains': int(n_domains),
+            'highres': result.metadata,
+            'has_expression_view': expression_embedding is not None,
+        }
+        self.dataset_.set_bioml_results(
+            imputed=result.recovered,
+            spot_factors=None,
+            gene_factors=None,
+            metadata=metadata,
+        )
+        domain_result = {
+            'labels': result.labels,
+            'n_domains': n_domains,
+            'method': 'spagapa_highres_bioml',
+            'domain_method': 'spectral',
+            'imputed_values': result.recovered,
+            'metadata': metadata,
+        }
+        return result.labels, domain_result, result.recovered
 
     def _calculate_apa_indices(self, work: np.ndarray) -> Dict[str, Union[np.ndarray, bool, str]]:
         """
@@ -703,13 +813,25 @@ class SpaGAPA:
                     expression_embedding,
                     expression_orientation,
                 )
-                domain_labels, domain_result = self._run_bioml(
-                    work,
-                    coords,
-                    uncertainty if use_uw else None,
-                    expr_embedding,
-                    n_domains,
-                )
+                if run_options['resolved_preset'] in {'highres_accuracy', 'highres_fast'}:
+                    domain_labels, domain_result, work = self._run_highres_bioml(
+                        work,
+                        coords,
+                        uncertainty if use_uw else None,
+                        expr_embedding,
+                        n_domains,
+                    )
+                    self.results_['highres_bioml_values'] = work
+                    if quantify:
+                        self.results_['apa_indices'] = self._calculate_apa_indices(work)
+                else:
+                    domain_labels, domain_result = self._run_bioml(
+                        work,
+                        coords,
+                        uncertainty if use_uw else None,
+                        expr_embedding,
+                        n_domains,
+                    )
             else:
                 domain_id = DomainIdentifier(
                     method='kmeans',

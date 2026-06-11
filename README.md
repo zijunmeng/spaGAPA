@@ -87,6 +87,9 @@ spagapa run \
 to either `standard` or `highres_accuracy`. Advanced users can force
 `standard`, `highres_accuracy`, or `highres_fast`; they can also override the
 automatic BioML decision with `--enable-bioml` or `--disable-bioml`.
+High-resolution presets use the decoupled `highres_bioml` route: APA value
+recovery and biological-domain graph recovery are tuned separately so sparse
+pseudo-bin data can keep domain structure without forcing a GPU dependency.
 
 BioML/preset outputs include `analysis_preset.json`, `domains.csv`,
 `bioml_metadata.json`, `bioml_spot_factors.npy`, and

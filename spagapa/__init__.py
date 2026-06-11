@@ -62,8 +62,11 @@ from spagapa.analysis import (
 from spagapa.bioml import (
     BioMLDomainDetector,
     GraphRegularizedAPAFactorizer,
+    HighResBioMLConfig,
+    HighResBioMLResult,
     MultiViewGraph,
     MultiViewGraphBuilder,
+    highres_bioml_recover,
 )
 
 # User-facing analysis presets
@@ -109,7 +112,8 @@ __all__ = [
     "build_spatial_trajectory", "analyse_apa_trajectory",
     # BioML
     "BioMLDomainDetector", "GraphRegularizedAPAFactorizer",
-    "MultiViewGraph", "MultiViewGraphBuilder",
+    "HighResBioMLConfig", "HighResBioMLResult",
+    "MultiViewGraph", "MultiViewGraphBuilder", "highres_bioml_recover",
     # Presets
     "VALID_ANALYSIS_PRESETS", "DatasetProfile", "profile_spatial_apa_matrix",
     "resolve_analysis_preset",

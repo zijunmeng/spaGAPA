@@ -212,7 +212,9 @@ def test_analysis_preset_highres_accuracy_enables_sparse_bioml():
     assert preset['use_bioml'] is True
     assert preset['bioml_weights'] == {'spatial': 0.2, 'expression': 0.6, 'apa': 0.2}
     assert results['imputed_values'].shape == (dataset.n_genes, dataset.n_spots)
-    assert results['domains']['method'] == 'spagapa_bioml'
+    assert results['domains']['method'] == 'spagapa_highres_bioml'
+    assert results['domains']['metadata']['mode'] == 'highres_bioml'
+    assert results['highres_bioml_values'].shape == (dataset.n_genes, dataset.n_spots)
 
 
 def test_analysis_preset_highres_fast_skips_gp_but_runs_bioml():
@@ -248,10 +250,12 @@ def test_analysis_preset_highres_fast_skips_gp_but_runs_bioml():
     preset = results['analysis_preset']
     assert preset['resolved_preset'] == 'highres_fast'
     assert preset['impute'] is False
+    assert preset['highres_bioml_gp_blend'] == 0.0
     assert preset['use_bioml'] is True
     assert results['imputed_values'] is None
     assert results['uncertainty'] is None
-    assert results['domains']['method'] == 'spagapa_bioml'
+    assert results['domains']['method'] == 'spagapa_highres_bioml'
+    assert results['domains']['metadata']['highres']['gp_blend_effective'] == 0.0
 
 
 def test_cli_run_with_bioml_from_tables(tmp_path):

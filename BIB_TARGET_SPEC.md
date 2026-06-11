@@ -3673,18 +3673,116 @@ analysis_preset.json
 - BioML graph weights
 - fast mode 是否跳过 GP
 
+### 23.23 highres_bioml decoupled route 已接入主 pipeline
+
+在 23.22 的 preset entrypoint 之后，已进一步把 benchmark runner 中表现最好的
+`highres_bioml` decoupled domain route 提炼为包内模块，并接入主 pipeline。
+
+新增/修改位置：
+
+```text
+spagapa/bioml/highres.py
+spagapa/bioml/__init__.py
+spagapa/pipeline.py
+spagapa/cli.py
+tests/unit/test_highres_bioml.py
+tests/integration/test_pipeline_toy.py
+```
+
+#### 核心设计
+
+`highres_bioml` 不再等价于普通 `sparse GP + BioML factorization`，而是采用
+benchmark 中验证过的 decoupled 设计：
+
+```text
+observed APA matrix
+  -> raw gene-mean fill
+  -> optional sparse-GP value blend
+  -> recovered APA values
+
+coordinates + expression embedding + optional APA proxy
+  -> high-resolution multi-view graph
+  -> spectral BioML domain recovery
+```
+
+这解决了之前 `sparse_bioml` 在 high-resolution pseudo-bin 数据中垫底的核心问题：
+不能让 sparse APA value recovery 直接支配 biological domain graph。
+
+#### highres preset 当前行为
+
+```text
+highres_accuracy
+  - sparse GP imputation: enabled
+  - highres_bioml gp_blend: 0.3
+  - domain graph APA source: expression_knn
+  - graph weights: spatial=0.2, expression=0.6, APA=0.2
+  - output domain method: spagapa_highres_bioml
+
+highres_fast
+  - sparse GP imputation: skipped
+  - highres_bioml gp_blend: 0
+  - domain graph APA source: expression_knn if expression is available, otherwise raw
+  - graph weights: spatial=0.2, expression=0.6, APA=0.2
+  - output domain method: spagapa_highres_bioml
+```
+
+#### 新增可调参数
+
+CLI/API 已支持：
+
+```text
+highres_bioml_gp_blend
+highres_bioml_apa_source = expression_knn | raw | sparse_gp | none
+highres_bioml_expression_knn_k
+highres_bioml_neighbor_mode = fixed | adaptive
+highres_bioml_adaptive_neighbor_scale
+highres_bioml_parent_weight
+highres_bioml_parent_neighbors
+```
+
+其中 `parent_index` 可从以下 AnnData metadata 自动读取：
+
+```text
+adata.obs["parent_spot"]
+adata.obs["parent_spot_id"]
+adata.obs["parent_index"]
+adata.obs["parent_bin"]
+adata.uns["apa"]["parent_index"]
+```
+
+如果没有 parent/coarse-bin 信息，则 adaptive neighbor 自动退化为 fixed KNN。
+
+#### 输出与可复现性
+
+highres preset 的 domain 输出：
+
+```text
+results["domains"]["method"] = "spagapa_highres_bioml"
+results["domains"]["metadata"]["mode"] = "highres_bioml"
+results["highres_bioml_values"]
+dataset.adata.uns["apa"]["bioml"]["highres"]
+```
+
+保存结果仍复用：
+
+```text
+bioml_imputed_values.npy
+bioml_metadata.json
+analysis_preset.json
+```
+
 #### 当前边界
 
-这一步解决的是用户入口和主 pipeline 决策层，不等于已经完成所有真实
-high-resolution 数据验证。
+这一步完成的是主 pipeline 接入，不等于已经完成真实 high-resolution 数据验证。
 
 下一步必须做：
 
-1. 把 benchmark 中表现最好的 `highres_bioml` decoupled domain route 继续向主
-   pipeline 对齐。
+1. 用同一套 CLI/pipeline 接口跑 pseudo-highres formal suite 的 pipeline-level
+   smoke benchmark，确认与 runner 结果一致。
 2. 在外部真实 high-resolution datasets 上验证 `auto -> highres_accuracy`
-   阈值。
-3. 为 `highres_fast` 单独报告 domain recovery、runtime 和 uncertainty 缺失说明。
+   阈值和默认 graph weights。
+3. 单独报告 `highres_fast` 的 runtime/domain recovery，同时明确其不提供 GP
+   uncertainty。
 
 ---
 

@@ -120,6 +120,22 @@ _opt_analysis_preset = click.option(
               help='BioML expression graph weight.')
 @click.option('--bioml-apa-weight', default=0.2, show_default=True,
               help='BioML APA graph weight.')
+@click.option('--highres-bioml-gp-blend', default=0.3, show_default=True,
+              help='Sparse-GP contribution for high-resolution BioML value recovery.')
+@click.option('--highres-bioml-apa-source', default='expression_knn', show_default=True,
+              type=click.Choice(['expression_knn', 'raw', 'sparse_gp', 'none']),
+              help='APA proxy used for high-resolution BioML domain graph.')
+@click.option('--highres-bioml-expression-knn-k', default=15, show_default=True,
+              help='Expression-KNN size for high-resolution APA proxy.')
+@click.option('--highres-bioml-neighbor-mode', default='adaptive', show_default=True,
+              type=click.Choice(['fixed', 'adaptive']),
+              help='High-resolution BioML graph neighborhood mode.')
+@click.option('--highres-bioml-adaptive-neighbor-scale', default=10.0, show_default=True,
+              help='Adaptive-neighbor scale for high-resolution BioML.')
+@click.option('--highres-bioml-parent-weight', default=0.0, show_default=True,
+              help='Optional parent/coarse-bin graph fusion weight.')
+@click.option('--highres-bioml-parent-neighbors', default=8, show_default=True,
+              help='Parent/coarse-bin KNN size for high-resolution BioML.')
 @click.option('--expression-n-components', default=10, show_default=True,
               help='PCA dimensions for --expression-matrix.')
 @click.option('--diff', is_flag=True, help='Enable differential analysis.')
@@ -162,6 +178,13 @@ def run(**kwargs):
         bioml_spatial_weight=kwargs['bioml_spatial_weight'],
         bioml_expression_weight=kwargs['bioml_expression_weight'],
         bioml_apa_weight=kwargs['bioml_apa_weight'],
+        highres_bioml_gp_blend=kwargs['highres_bioml_gp_blend'],
+        highres_bioml_apa_source=kwargs['highres_bioml_apa_source'],
+        highres_bioml_expression_knn_k=kwargs['highres_bioml_expression_knn_k'],
+        highres_bioml_neighbor_mode=kwargs['highres_bioml_neighbor_mode'],
+        highres_bioml_adaptive_neighbor_scale=kwargs['highres_bioml_adaptive_neighbor_scale'],
+        highres_bioml_parent_weight=kwargs['highres_bioml_parent_weight'],
+        highres_bioml_parent_neighbors=kwargs['highres_bioml_parent_neighbors'],
         expression_n_components=kwargs['expression_n_components'],
         verbose=kwargs['verbose'],
     )
@@ -198,7 +221,7 @@ def run(**kwargs):
     domains = results.get('domains')
     if domains is not None:
         click.echo(f"   Spatial domains: {domains['n_domains']}")
-        if domains.get('method') == 'spagapa_bioml':
+        if domains.get('method') in {'spagapa_bioml', 'spagapa_highres_bioml'}:
             click.echo(f"   BioML domain method: {domains.get('domain_method')}")
 
     preset = results.get('analysis_preset')
