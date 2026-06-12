@@ -3916,15 +3916,139 @@ pipeline_highres_fast
    - 当用户首先关注 layer/domain recovery 而非 uncertainty-aware value modeling
      时，是非常有竞争力的模式。
 
+### 23.25 pipeline-level multi-seed small suite 已完成
+
+在单 seed smoke 通过后，已将 `scripts/run_pipeline_highres_smoke.py` 扩展为
+multi-seed small suite：
+
+```text
+--seed 42                # 保留单 seed smoke 用法
+--seeds 42,43,44         # 新增 multi-seed suite
+--subbins-per-spot 2,4,8 # 覆盖 2x / 4x / 8x pseudo-bin density
+```
+
+新增输出：
+
+```text
+pipeline_highres_smoke_summary.csv
+pipeline_highres_smoke_overall_summary.csv
+pipeline_highres_smoke_scaling_summary.csv
+pipeline_highres_smoke_metadata.json
+decision_summary.json
+figures/pipeline_highres_smoke_summary.png
+figures/pipeline_highres_smoke_scaling.png
+figures/pipeline_highres_smoke_domains.png
+```
+
+测试覆盖：
+
+```text
+tests/integration/test_pipeline_highres_smoke.py
+```
+
+已从单 seed toy smoke 扩展为 `2 seeds x 2 subbin levels x 3 methods` 的
+小规模集成测试，确保 runner 的 suite 输出和图表持续可用。
+
+#### 真实 MOB pipeline highres small suite v1
+
+输出目录：
+
+```text
+spaGAPA/benchmark_results/real/pipeline_highres_smoke_suite_v1/
+```
+
+运行配置：
+
+```text
+dataset = stapaminer_mob
+n_genes = 24
+n_parent_spots = 80
+seeds = 42,43,44
+subbins_per_spot = 2,4,8
+methods =
+  runner_highres_bioml
+  pipeline_highres_accuracy
+  pipeline_highres_fast
+```
+
+总表规模：
+
+```text
+27 rows = 3 seeds x 3 subbin levels x 3 methods
+```
+
+Overall mean:
+
+```text
+method                    rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+runner_highres_bioml       0.082771      0.064493     0.317363   0.429972   2.241139
+pipeline_highres_accuracy  0.082771      0.064493     0.317363   0.429972   2.155246
+pipeline_highres_fast      0.086678      0.065067     0.317363   0.429972   0.201237
+```
+
+按 pseudo-bin density 分层：
+
+```text
+subbins method                    rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+2       runner_highres_bioml       0.088871      0.073428     0.338905   0.439748   1.886838
+2       pipeline_highres_accuracy  0.088871      0.073428     0.338905   0.439748   1.703617
+2       pipeline_highres_fast      0.088391      0.071263     0.338905   0.439748   0.035891
+4       runner_highres_bioml       0.081069      0.063040     0.303994   0.431471   2.286250
+4       pipeline_highres_accuracy  0.081069      0.063040     0.303994   0.431471   2.334153
+4       pipeline_highres_fast      0.085639      0.063750     0.303994   0.431471   0.277552
+8       runner_highres_bioml       0.078373      0.057010     0.309190   0.418699   2.550328
+8       pipeline_highres_accuracy  0.078373      0.057010     0.309190   0.418699   2.427968
+8       pipeline_highres_fast      0.086003      0.060189     0.309190   0.418699   0.290267
+```
+
+Decision summary:
+
+```text
+pipeline_highres_accuracy vs runner:
+  rmse_delta = 0
+  parent_rmse_delta = 0
+  layer_ari_delta = 0
+  layer_nmi_delta = 0
+  runtime_ratio = 0.962
+
+pipeline_highres_fast vs runner:
+  rmse_delta = +0.00391
+  parent_rmse_delta = +0.00057
+  layer_ari_delta = 0
+  layer_nmi_delta = 0
+  runtime_ratio = 0.0898
+```
+
+#### 结论
+
+1. `pipeline_highres_accuracy` 不只是单 seed smoke 对齐，而是在
+   `3 seeds x 2/4/8 pseudo-bin density` 下与 `runner_highres_bioml`
+   保持完全一致的 RMSE、parent RMSE、layer ARI 和 layer NMI。
+2. 这证明 high-resolution 主线已经真正被主 pipeline 接管，不再依赖
+   benchmark-only 脚本路径。
+3. `pipeline_highres_fast` 在所有 2x / 4x / 8x 条件下保持同样 biological
+   consistency，但 runtime 约为 runner 的 `0.09x`，代价是 holdout RMSE 平均增加
+   `0.00391`。
+4. 这给用户-facing 模式提供了清晰证据：
+   - `highres_accuracy`：论文级主线、保留 sparse GP / uncertainty。
+   - `highres_fast`：快速 biological domain discovery，适合 exploratory highres data。
+
 #### 下一步 high-resolution 主线优先事项
 
-1. 把这个 smoke runner 扩展成 multi-seed smoke suite，避免单 seed 偶然性。
-2. 在更多 `subbins_per_spot` 条件下检验：
-   - `2x`
-   - `4x`
-   - `8x`
-3. 用主 pipeline 而不是独立 runner 继续跑 high-resolution formal suite。
-4. 寻找并验证外部真实 high-resolution spatial transcriptomics 数据。
+1. 用主 pipeline 继续跑更正式的 high-resolution formal suite：
+   - 更多 genes
+   - 更多 seeds
+   - dropout / low-coverage stress
+   - graph-weight sweep
+2. 在外部真实 high-resolution spatial transcriptomics 数据上验证：
+   - `auto -> highres_accuracy` 阈值
+   - 默认 graph weights
+   - `highres_fast` 是否稳定保留 biological consistency
+3. 开始整理 BIB 图表草案：
+   - pipeline takeover validation
+   - 2x/4x/8x scaling
+   - accuracy vs fast mode tradeoff
+4. 寻找并验证保留 3-prime/poly(A) 信息的真实 high-resolution spatial 数据。
 
 ---
 

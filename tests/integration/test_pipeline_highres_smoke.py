@@ -71,7 +71,9 @@ def test_pipeline_highres_smoke_runner_toy(tmp_path):
         "--max-parent-spots",
         "12",
         "--subbins-per-spot",
-        "2",
+        "2,4",
+        "--seeds",
+        "11,12",
         "--capture-rate",
         "0.6",
         "--dropout-rate",
@@ -94,9 +96,15 @@ def test_pipeline_highres_smoke_runner_toy(tmp_path):
         "pipeline_highres_accuracy",
         "pipeline_highres_fast",
     }
+    assert set(summary["subbins_per_spot"]) == {2, 4}
+    assert set(summary["seed"]) == {11, 12}
+    assert len(summary) == 12
     assert np.isfinite(summary["rmse_holdout"]).all()
     assert np.isfinite(summary["layer_ari"]).all()
     assert (output_dir / "decision_summary.json").exists()
+    assert (output_dir / "pipeline_highres_smoke_overall_summary.csv").exists()
+    assert (output_dir / "pipeline_highres_smoke_scaling_summary.csv").exists()
     assert (output_dir / "pipeline_highres_smoke_metadata.json").exists()
     assert (output_dir / "figures" / "pipeline_highres_smoke_summary.png").exists()
+    assert (output_dir / "figures" / "pipeline_highres_smoke_scaling.png").exists()
     assert (output_dir / "figures" / "pipeline_highres_smoke_domains.png").exists()

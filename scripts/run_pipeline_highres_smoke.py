@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Pipeline-level smoke benchmark for high-resolution spaGAPA presets.
+"""Pipeline-level benchmark guard for high-resolution spaGAPA presets.
 
 This runner checks that the package pipeline is no longer weaker than the
 standalone high-resolution benchmark path. It uses the same pseudo-bin
@@ -9,8 +9,9 @@ simulation and compares:
 * ``pipeline_highres_accuracy`` from ``SpaGAPA(analysis_preset='highres_accuracy')``
 * ``pipeline_highres_fast`` from ``SpaGAPA(analysis_preset='highres_fast')``
 
-The goal is not a full formal benchmark; it is a quick reproducibility guard
-for the high-resolution mainline integration.
+The default command remains a quick smoke check, but the runner also supports a
+small multi-seed suite over 2x/4x/8x pseudo-bin densities. That suite is used as
+a reproducibility guard for the high-resolution mainline integration.
 """
 
 from __future__ import annotations
@@ -86,6 +87,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--jitter-fraction", type=float, default=0.18)
     parser.add_argument("--expression-noise", type=float, default=0.03)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--seeds",
+        default=None,
+        help="Comma-separated seeds for a small stability suite. If omitted, --seed is used.",
+    )
     parser.add_argument("--layer-column", default="layer")
     parser.add_argument(
         "--methods",
@@ -201,6 +207,8 @@ def evaluate_method(
     scenario_name: str,
     dataset_name: str,
     n_domains: int,
+    seed: int,
+    subbins_per_spot: int,
 ) -> Dict[str, Any]:
     layer_metrics, pred_domains, _ = evaluate_layer_metrics(
         output["matrix"],
@@ -218,6 +226,8 @@ def evaluate_method(
     )
     return {
         "dataset": dataset_name,
+        "seed": int(seed),
+        "subbins_per_spot": int(subbins_per_spot),
         "scenario": scenario_name,
         "method": method,
         "n_genes": int(sim["truth"].shape[0]),
@@ -237,16 +247,59 @@ def plot_smoke_summary(results: pd.DataFrame, figure_dir: Path) -> None:
     methods = [m for m in METHOD_COLORS if m in results["method"].values]
     x = np.arange(len(methods))
     for ax, metric in zip(axes, metrics):
-        values = [
-            float(results.loc[results["method"] == method, metric].mean())
-            for method in methods
-        ]
+        values = []
+        errors = []
+        for method in methods:
+            vals = results.loc[results["method"] == method, metric].dropna()
+            values.append(float(vals.mean()) if not vals.empty else np.nan)
+            errors.append(float(vals.std(ddof=0)) if len(vals) > 1 else 0.0)
         ax.bar(x, values, color=[METHOD_COLORS[method] for method in methods])
+        ax.errorbar(x, values, yerr=errors, fmt="none", ecolor="#333333", capsize=3, linewidth=1)
         ax.set_title(metric)
         ax.set_xticks(x)
         ax.set_xticklabels(methods, rotation=45, ha="right")
     fig.tight_layout()
     fig.savefig(figure_dir / "pipeline_highres_smoke_summary.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_scaling_summary(results: pd.DataFrame, figure_dir: Path) -> None:
+    """Plot mean +/- sd across seeds over pseudo-bin density."""
+    if results.empty or "subbins_per_spot" not in results.columns:
+        return
+    metrics = ["rmse_holdout", "parent_rmse", "layer_ari", "runtime_s"]
+    fig, axes = plt.subplots(1, len(metrics), figsize=(4.2 * len(metrics), 4.0))
+    methods = [m for m in METHOD_COLORS if m in results["method"].values]
+    for ax, metric in zip(axes, metrics):
+        if metric not in results.columns:
+            ax.axis("off")
+            continue
+        for method in methods:
+            sub = results[results["method"] == method]
+            grouped = (
+                sub.groupby("subbins_per_spot")[metric]
+                .agg(["mean", "std"])
+                .reset_index()
+                .sort_values("subbins_per_spot")
+            )
+            if grouped.empty:
+                continue
+            std = grouped["std"].fillna(0.0)
+            ax.errorbar(
+                grouped["subbins_per_spot"],
+                grouped["mean"],
+                yerr=std,
+                marker="o",
+                linewidth=1.5,
+                capsize=3,
+                label=method,
+                color=METHOD_COLORS[method],
+            )
+        ax.set_xlabel("Pseudo-bins per parent spot")
+        ax.set_title(metric)
+    axes[0].legend(frameon=False, fontsize=8)
+    fig.tight_layout()
+    fig.savefig(figure_dir / "pipeline_highres_smoke_scaling.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -286,8 +339,18 @@ def build_decision(results: pd.DataFrame, output_dir: Path) -> Dict[str, Any]:
     decision: Dict[str, Any] = {
         "output_dir": str(output_dir),
         "summary_table": str(output_dir / "pipeline_highres_smoke_summary.csv"),
+        "overall_summary": str(output_dir / "pipeline_highres_smoke_overall_summary.csv"),
+        "scaling_summary": str(output_dir / "pipeline_highres_smoke_scaling_summary.csv"),
         "figures": sorted(str(path) for path in (output_dir / "figures").glob("*.png")),
+        "n_seeds": int(results["seed"].nunique()) if "seed" in results.columns and not results.empty else 0,
+        "seeds": sorted(int(x) for x in results["seed"].dropna().unique()) if "seed" in results.columns else [],
+        "subbins_per_spot": (
+            sorted(int(x) for x in results["subbins_per_spot"].dropna().unique())
+            if "subbins_per_spot" in results.columns
+            else []
+        ),
         "comparisons": {},
+        "comparisons_by_subbins": {},
     }
     by_method = results.groupby("method").mean(numeric_only=True)
     runner = by_method.loc["runner_highres_bioml"] if "runner_highres_bioml" in by_method.index else None
@@ -302,7 +365,59 @@ def build_decision(results: pd.DataFrame, output_dir: Path) -> Dict[str, Any]:
             "layer_nmi_delta_vs_runner": float(row["layer_nmi"] - runner["layer_nmi"]),
             "runtime_ratio_vs_runner": float(row["runtime_s"] / max(runner["runtime_s"], 1e-9)),
         }
+    if "subbins_per_spot" in results.columns:
+        for subbins, sub in results.groupby("subbins_per_spot"):
+            by_method_sub = sub.groupby("method").mean(numeric_only=True)
+            if "runner_highres_bioml" not in by_method_sub.index:
+                continue
+            runner_sub = by_method_sub.loc["runner_highres_bioml"]
+            key = str(int(subbins))
+            decision["comparisons_by_subbins"][key] = {}
+            for method in ["pipeline_highres_accuracy", "pipeline_highres_fast"]:
+                if method not in by_method_sub.index:
+                    continue
+                row = by_method_sub.loc[method]
+                decision["comparisons_by_subbins"][key][method] = {
+                    "rmse_delta_vs_runner": float(row["rmse_holdout"] - runner_sub["rmse_holdout"]),
+                    "parent_rmse_delta_vs_runner": float(row["parent_rmse"] - runner_sub["parent_rmse"]),
+                    "layer_ari_delta_vs_runner": float(row["layer_ari"] - runner_sub["layer_ari"]),
+                    "layer_nmi_delta_vs_runner": float(row["layer_nmi"] - runner_sub["layer_nmi"]),
+                    "runtime_ratio_vs_runner": float(row["runtime_s"] / max(runner_sub["runtime_s"], 1e-9)),
+                }
     return decision
+
+
+def summarize_suite(results: pd.DataFrame, output_dir: Path) -> None:
+    """Write method-level and density-level mean/sd summaries."""
+    metric_cols = [
+        "rmse_holdout",
+        "parent_rmse",
+        "layer_ari",
+        "layer_nmi",
+        "runtime_s",
+        "observed_fraction",
+    ]
+    available = [col for col in metric_cols if col in results.columns]
+    if results.empty or not available:
+        return
+
+    overall = results.groupby("method")[available].agg(["mean", "std"]).reset_index()
+    overall.columns = [
+        "_".join([str(part) for part in col if str(part)])
+        if isinstance(col, tuple)
+        else str(col)
+        for col in overall.columns
+    ]
+    overall.to_csv(output_dir / "pipeline_highres_smoke_overall_summary.csv", index=False)
+
+    scaling = results.groupby(["subbins_per_spot", "method"])[available].agg(["mean", "std"]).reset_index()
+    scaling.columns = [
+        "_".join([str(part) for part in col if str(part)])
+        if isinstance(col, tuple)
+        else str(col)
+        for col in scaling.columns
+    ]
+    scaling.to_csv(output_dir / "pipeline_highres_smoke_scaling_summary.csv", index=False)
 
 
 def main() -> None:
@@ -315,69 +430,91 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     figure_dir.mkdir(parents=True, exist_ok=True)
 
+    seeds = parse_int_list(args.seeds) if args.seeds else [int(args.seed)]
+    subbins_values = parse_int_list(args.subbins_per_spot)
     loaded = load_dataset(data_dir)
-    apa = select_genes(loaded["apa"], args.n_genes, args.min_observed_spots)
-    parent_spots = sample_parent_spots(
-        apa.columns.astype(str).tolist(),
-        loaded["metadata"],
-        args.layer_column,
-        args.max_parent_spots,
-        args.seed,
-    )
-    apa = apa.loc[:, parent_spots]
-    coords = loaded["coords"].loc[parent_spots]
-    metadata = loaded["metadata"].loc[parent_spots]
-    expression = loaded["expression"].reindex(columns=parent_spots) if loaded["expression"] is not None else None
+    selected_apa = select_genes(loaded["apa"], args.n_genes, args.min_observed_spots)
 
     dataset_name = args.dataset_name
+    if dataset_name is None and "dataset" in loaded["metadata"].columns:
+        dataset_name = str(loaded["metadata"]["dataset"].dropna().astype(str).iloc[0])
     if dataset_name is None:
-        dataset_name = str(metadata["dataset"].dropna().astype(str).iloc[0]) if "dataset" in metadata.columns else data_dir.name
-    if args.n_domains is not None:
-        n_domains = args.n_domains
-    elif args.layer_column in metadata.columns:
-        n_domains = int(metadata[args.layer_column].astype(str).nunique())
-    else:
-        n_domains = min(5, max(2, len(parent_spots) // 20))
+        dataset_name = data_dir.name
 
     rows = []
     domain_maps: Dict[str, np.ndarray] = {}
     metadata_out: Dict[str, Any] = {}
     last_sim = None
-    for subbins in parse_int_list(args.subbins_per_spot):
-        scenario_name = f"subbins{subbins}_capture{args.capture_rate:.2f}_dropout{args.dropout_rate:.2f}"
-        print(f"\nRunning pipeline highres smoke scenario: {scenario_name}")
-        sim = simulate_pseudo_bins(apa, expression, coords, metadata, subbins, args)
-        gene_names = apa.index.astype(str).tolist()
-
-        runner_outputs, _, _ = track_runtime_memory(
-            lambda: run_methods(sim, args, n_domains)
+    for seed in seeds:
+        parent_spots = sample_parent_spots(
+            selected_apa.columns.astype(str).tolist(),
+            loaded["metadata"],
+            args.layer_column,
+            args.max_parent_spots,
+            seed,
         )
-        runner = runner_outputs["highres_bioml"]
-        method_outputs = {
-            "runner_highres_bioml": runner,
-            "pipeline_highres_accuracy": run_pipeline_method(
-                sim, gene_names, "highres_accuracy", n_domains, args
-            ),
-            "pipeline_highres_fast": run_pipeline_method(
-                sim, gene_names, "highres_fast", n_domains, args
-            ),
-        }
-        for method, output in method_outputs.items():
-            row, domains = evaluate_method(method, output, sim, scenario_name, dataset_name, n_domains)
-            rows.append(row)
-            domain_maps[method] = domains
-            metadata_out[f"{scenario_name}:{method}"] = {
-                "metadata": output.get("metadata", {}),
-                "analysis_preset": output.get("analysis_preset", {}),
+        apa = selected_apa.loc[:, parent_spots]
+        coords = loaded["coords"].loc[parent_spots]
+        metadata = loaded["metadata"].loc[parent_spots]
+        expression = loaded["expression"].reindex(columns=parent_spots) if loaded["expression"] is not None else None
+        if args.n_domains is not None:
+            n_domains = args.n_domains
+        elif args.layer_column in metadata.columns:
+            n_domains = int(metadata[args.layer_column].astype(str).nunique())
+        else:
+            n_domains = min(5, max(2, len(parent_spots) // 20))
+
+        scenario_args = argparse.Namespace(**vars(args))
+        scenario_args.seed = int(seed)
+        for subbins in subbins_values:
+            scenario_name = (
+                f"seed{seed}_subbins{subbins}_"
+                f"capture{args.capture_rate:.2f}_dropout{args.dropout_rate:.2f}"
+            )
+            print(f"\nRunning pipeline highres smoke scenario: {scenario_name}")
+            sim = simulate_pseudo_bins(apa, expression, coords, metadata, subbins, scenario_args)
+            gene_names = apa.index.astype(str).tolist()
+
+            runner_outputs, _, _ = track_runtime_memory(
+                lambda: run_methods(sim, scenario_args, n_domains)
+            )
+            runner = runner_outputs["highres_bioml"]
+            method_outputs = {
+                "runner_highres_bioml": runner,
+                "pipeline_highres_accuracy": run_pipeline_method(
+                    sim, gene_names, "highres_accuracy", n_domains, scenario_args
+                ),
+                "pipeline_highres_fast": run_pipeline_method(
+                    sim, gene_names, "highres_fast", n_domains, scenario_args
+                ),
             }
-        last_sim = sim
+            for method, output in method_outputs.items():
+                row, domains = evaluate_method(
+                    method,
+                    output,
+                    sim,
+                    scenario_name,
+                    dataset_name,
+                    n_domains,
+                    seed,
+                    subbins,
+                )
+                rows.append(row)
+                domain_maps[method] = domains
+                metadata_out[f"{scenario_name}:{method}"] = {
+                    "metadata": output.get("metadata", {}),
+                    "analysis_preset": output.get("analysis_preset", {}),
+                }
+            last_sim = sim
 
     results = pd.DataFrame(rows)
     results.to_csv(output_dir / "pipeline_highres_smoke_summary.csv", index=False)
+    summarize_suite(results, output_dir)
     (output_dir / "pipeline_highres_smoke_metadata.json").write_text(
         json.dumps(metadata_out, indent=2, default=str)
     )
     plot_smoke_summary(results, figure_dir)
+    plot_scaling_summary(results, figure_dir)
     if last_sim is not None:
         plot_domain_maps(last_sim, domain_maps, figure_dir)
 
