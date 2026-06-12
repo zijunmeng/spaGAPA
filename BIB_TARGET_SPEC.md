@@ -4052,6 +4052,228 @@ pipeline_highres_fast vs runner:
 
 ---
 
+### 23.26 pipeline-level highres formal suite v1 已完成
+
+本轮目标：
+
+1. 把 `pipeline_highres_smoke` 从一次性 smoke 扩展为正式 suite runner。
+2. 确认主 pipeline 的 `highres_accuracy` / `highres_fast` 不再只是入口 preset，
+   而是能稳定复现 benchmark 分支的 high-resolution BioML 行为。
+3. 在同一个 suite 里同时评估：
+   - multi-seed formal benchmark；
+   - 2x / 4x / 8x pseudo-bin scaling；
+   - dropout stress；
+   - high-resolution graph-weight sweep；
+   - GP blend / fast-mode tradeoff。
+
+#### 新增实现
+
+新增：
+
+```text
+scripts/run_pipeline_highres_suite.py
+tests/integration/test_pipeline_highres_suite.py
+```
+
+同时修正：
+
+```text
+spagapa/pipeline.py
+spagapa/cli.py
+scripts/run_pipeline_highres_smoke.py
+tests/integration/test_pipeline_toy.py
+```
+
+关键变化：
+
+1. `SpaGAPA` 增加 high-resolution 专用 graph 权重参数：
+   - `highres_bioml_spatial_weight`
+   - `highres_bioml_expression_weight`
+   - `highres_bioml_apa_weight`
+2. CLI 同步暴露这些参数。
+3. `run_pipeline_highres_smoke.py` 现在会把 graph 权重真正传入
+   `SpaGAPA`，因此 suite 里的 graph-weight sweep 不再是“参数写了但没生效”的
+   伪 sweep。
+4. `run_pipeline_highres_suite.py` 聚合多个 smoke run，生成 suite-level:
+   - long table；
+   - overall summary；
+   - decision JSON；
+   - formal / scaling / dropout / graph sweep / GP blend figures。
+
+#### 测试
+
+```text
+conda run -n spagapa python -m py_compile \
+  scripts/run_pipeline_highres_suite.py \
+  scripts/run_pipeline_highres_smoke.py \
+  spagapa/pipeline.py \
+  spagapa/cli.py
+
+conda run -n spagapa pytest \
+  tests/integration/test_pipeline_highres_suite.py \
+  tests/integration/test_pipeline_highres_smoke.py \
+  tests/integration/test_pipeline_toy.py \
+  tests/unit/test_highres_bioml.py \
+  -q
+```
+
+结果：
+
+```text
+13 passed
+```
+
+#### 真实 MOB pipeline highres formal suite v1
+
+输出目录：
+
+```text
+spaGAPA/benchmark_results/real/pipeline_highres_suite_v1/
+```
+
+核心输出文件：
+
+```text
+pipeline_highres_suite_results_long.csv
+pipeline_highres_suite_overall_summary.csv
+decision_summary.json
+figures/pipeline_highres_suite_formal.png
+figures/pipeline_highres_suite_scaling.png
+figures/pipeline_highres_suite_dropout.png
+figures/pipeline_highres_suite_graph_sweep.png
+figures/pipeline_highres_suite_gp_blend.png
+```
+
+运行规模：
+
+```text
+72 rows
+formal:          9 rows
+scaling:        27 rows
+dropout:         9 rows
+graph_sweep:    15 rows
+gp_blend_sweep: 12 rows
+```
+
+Formal benchmark mean：
+
+```text
+method                    rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+pipeline_highres_accuracy  0.081069      0.063040     0.303994   0.431471   2.403897
+pipeline_highres_fast      0.085639      0.063750     0.303994   0.431471   0.394619
+runner_highres_bioml       0.081069      0.063040     0.303994   0.431471   2.354127
+```
+
+Decision summary：
+
+```text
+pipeline_highres_accuracy vs runner:
+  rmse_delta        = 0
+  parent_rmse_delta = 0
+  layer_ari_delta   = 0
+  layer_nmi_delta   = 0
+  runtime_ratio     = 1.021
+
+pipeline_highres_fast vs runner:
+  rmse_delta        = +0.004571
+  parent_rmse_delta = +0.000710
+  layer_ari_delta   = 0
+  layer_nmi_delta   = 0
+  runtime_ratio     = 0.168
+```
+
+Scaling mean：
+
+```text
+subbins method                    rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+2       pipeline_highres_accuracy  0.088871      0.073428     0.338905   0.439748   1.610432
+2       pipeline_highres_fast      0.088391      0.071263     0.338905   0.439748   0.033673
+2       runner_highres_bioml       0.088871      0.073428     0.338905   0.439748   1.854458
+4       pipeline_highres_accuracy  0.081069      0.063040     0.303994   0.431471   2.145632
+4       pipeline_highres_fast      0.085639      0.063750     0.303994   0.431471   0.194196
+4       runner_highres_bioml       0.081069      0.063040     0.303994   0.431471   2.172537
+8       pipeline_highres_accuracy  0.078373      0.057010     0.309190   0.418699   2.537027
+8       pipeline_highres_fast      0.086003      0.060189     0.309190   0.418699   0.371996
+8       runner_highres_bioml       0.078373      0.057010     0.309190   0.418699   2.509645
+```
+
+Dropout stress 中 `pipeline_highres_accuracy`：
+
+```text
+dropout  rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+0.10     0.079323      0.059867     0.327491   0.439427   2.157996
+0.25     0.081141      0.063690     0.300424   0.428003   2.238552
+0.40     0.086488      0.071961     0.319129   0.429141   2.089238
+```
+
+Graph-weight sweep 中 `pipeline_highres_accuracy`：
+
+```text
+config                                  rmse_holdout  parent_rmse  layer_ari  layer_nmi
+expr_heavy_s010_e070_a020_exprknn        0.081141      0.063690     0.357448   0.463110
+raw_apa_s020_e060_a020                   0.081141      0.063690     0.316798   0.416439
+default_s020_e060_a020_exprknn           0.081141      0.063690     0.300424   0.428003
+no_apa_s040_e060_a000                    0.081141      0.063690     0.271380   0.418122
+spatial_heavy_s040_e040_a020_exprknn     0.081141      0.063690     0.199938   0.359530
+```
+
+GP blend sweep 中 `pipeline_highres_accuracy`：
+
+```text
+config                rmse_holdout  parent_rmse  layer_ari  layer_nmi
+gp_blend_0.1           0.080292      0.061093     0.300424   0.428003
+gp_blend_0.3_default   0.081141      0.063690     0.300424   0.428003
+gp_blend_0.0_fast_like 0.082186      0.061571     0.300424   0.428003
+gp_blend_0.5           0.087887      0.070492     0.300424   0.428003
+```
+
+#### 结论
+
+1. `highres_accuracy` 在 formal benchmark 中与 benchmark runner 完全对齐，
+   说明 high-resolution BioML 主线已经被 `SpaGAPA` pipeline 接管。
+2. `highres_fast` 保持同样的 biological consistency，但 runtime 约为 runner 的
+   `0.168x`，代价是 holdout RMSE 增加 `0.004571`。
+3. 2x / 4x / 8x scaling 下，`highres_accuracy` 与 runner 的 RMSE、parent RMSE、
+   layer ARI、layer NMI 均完全一致；这说明主 pipeline 在更高 pseudo-bin density
+   下没有掉线。
+4. Graph-weight sweep 表明，当前 MOB pseudo-highres 条件下 expression-heavy
+   配置 `spatial=0.1, expression=0.7, apa=0.2` 给出最高 layer ARI
+   `0.357448` 和 layer NMI `0.463110`。
+5. GP blend sweep 表明，`gp_blend=0.1` 的 RMSE 最低，优于当前默认
+   `gp_blend=0.3`；因此下一轮应考虑将 highres 默认从 `0.3` 调整到 `0.1`，
+   或提供 `highres_bioml_gp_blend='auto'`。
+
+#### 对 BIB 主线的影响
+
+这一轮结果把 high-resolution route 从“benchmark-only 实验路径”推进为
+spaGAPA 主 pipeline 的候选主线：
+
+1. `highres_accuracy` 可作为论文级默认：保留 sparse GP / uncertainty，并与当前
+   benchmark-best route 对齐。
+2. `highres_fast` 可作为 CPU-friendly exploratory mode：速度优势非常明显，
+   biological domain recovery 没有损失。
+3. high-resolution 叙事现在可以从“320 bins 好看”升级为：
+   `2x / 4x / 8x pseudo-bin density`、multi-seed、dropout、graph-weight、GP-blend
+   均有主 pipeline 层面的可复现证据。
+
+#### 下一步
+
+1. 将 highres 默认参数候选收敛到：
+   - `highres_bioml_gp_blend = 0.1`
+   - `highres_bioml_spatial_weight = 0.1`
+   - `highres_bioml_expression_weight = 0.7`
+   - `highres_bioml_apa_weight = 0.2`
+2. 跑一轮“候选默认参数 vs 当前默认参数”的外部真实数据验证。
+3. 增加 `analysis_preset='auto'` 的分辨率判别逻辑，避免用户必须理解
+   sparse/highres/fast 三套模式。
+4. 开始整理 high-resolution BIB 图组草案：
+   - formal validation；
+   - 2x/4x/8x scaling；
+   - fast vs accuracy tradeoff；
+   - graph-weight biological consistency sweep。
+
+---
+
 ## 24. 最终目标陈述
 
 spaGAPA 面向 BIB 的最终目标不是证明“我们写了一个包”，而是证明：

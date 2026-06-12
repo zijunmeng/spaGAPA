@@ -119,6 +119,9 @@ class SpaGAPA:
         bioml_expression_weight: float = 0.4,
         bioml_apa_weight: float = 0.2,
         highres_bioml_gp_blend: float = 0.3,
+        highres_bioml_spatial_weight: Optional[float] = None,
+        highres_bioml_expression_weight: Optional[float] = None,
+        highres_bioml_apa_weight: Optional[float] = None,
         highres_bioml_apa_source: str = 'expression_knn',
         highres_bioml_expression_knn_k: int = 15,
         highres_bioml_neighbor_mode: str = 'adaptive',
@@ -158,6 +161,15 @@ class SpaGAPA:
         self.bioml_expression_weight = float(bioml_expression_weight)
         self.bioml_apa_weight = float(bioml_apa_weight)
         self.highres_bioml_gp_blend = float(highres_bioml_gp_blend)
+        self.highres_bioml_spatial_weight = (
+            None if highres_bioml_spatial_weight is None else float(highres_bioml_spatial_weight)
+        )
+        self.highres_bioml_expression_weight = (
+            None if highres_bioml_expression_weight is None else float(highres_bioml_expression_weight)
+        )
+        self.highres_bioml_apa_weight = (
+            None if highres_bioml_apa_weight is None else float(highres_bioml_apa_weight)
+        )
         self.highres_bioml_apa_source = highres_bioml_apa_source
         self.highres_bioml_expression_knn_k = int(highres_bioml_expression_knn_k)
         self.highres_bioml_neighbor_mode = highres_bioml_neighbor_mode
@@ -221,6 +233,12 @@ class SpaGAPA:
             params['spatial_weight'] = 0.2
             params['expression_weight'] = 0.6
             params['apa_weight'] = 0.2
+        if self.highres_bioml_spatial_weight is not None:
+            params['spatial_weight'] = self.highres_bioml_spatial_weight
+        if self.highres_bioml_expression_weight is not None:
+            params['expression_weight'] = self.highres_bioml_expression_weight
+        if self.highres_bioml_apa_weight is not None:
+            params['apa_weight'] = self.highres_bioml_apa_weight
 
         if resolved_preset == 'highres_fast' and abs(self.bioml_blend - 0.1) < 1e-12:
             params['blend'] = 0.0

@@ -131,6 +131,12 @@ _opt_analysis_preset = click.option(
               help='BioML APA graph weight.')
 @click.option('--highres-bioml-gp-blend', default=0.3, show_default=True,
               help='Sparse-GP contribution for high-resolution BioML value recovery.')
+@click.option('--highres-bioml-spatial-weight', default=None, type=float,
+              help='High-resolution BioML spatial graph weight.')
+@click.option('--highres-bioml-expression-weight', default=None, type=float,
+              help='High-resolution BioML expression graph weight.')
+@click.option('--highres-bioml-apa-weight', default=None, type=float,
+              help='High-resolution BioML APA graph weight.')
 @click.option('--highres-bioml-apa-source', default='expression_knn', show_default=True,
               type=click.Choice(['expression_knn', 'raw', 'sparse_gp', 'none']),
               help='APA proxy used for high-resolution BioML domain graph.')
@@ -196,6 +202,9 @@ def run(**kwargs):
         bioml_expression_weight=kwargs['bioml_expression_weight'],
         bioml_apa_weight=kwargs['bioml_apa_weight'],
         highres_bioml_gp_blend=kwargs['highres_bioml_gp_blend'],
+        highres_bioml_spatial_weight=kwargs['highres_bioml_spatial_weight'],
+        highres_bioml_expression_weight=kwargs['highres_bioml_expression_weight'],
+        highres_bioml_apa_weight=kwargs['highres_bioml_apa_weight'],
         highres_bioml_apa_source=kwargs['highres_bioml_apa_source'],
         highres_bioml_expression_knn_k=kwargs['highres_bioml_expression_knn_k'],
         highres_bioml_neighbor_mode=kwargs['highres_bioml_neighbor_mode'],

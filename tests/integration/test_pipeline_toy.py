@@ -192,6 +192,9 @@ def test_analysis_preset_highres_accuracy_enables_sparse_bioml():
         bioml_rank=3,
         bioml_max_iter=3,
         bioml_n_neighbors=4,
+        highres_bioml_spatial_weight=0.3,
+        highres_bioml_expression_weight=0.5,
+        highres_bioml_apa_weight=0.2,
         verbose=False,
     )
 
@@ -210,10 +213,12 @@ def test_analysis_preset_highres_accuracy_enables_sparse_bioml():
     assert preset['resolved_preset'] == 'highres_accuracy'
     assert preset['use_sparse_gp'] is True
     assert preset['use_bioml'] is True
-    assert preset['bioml_weights'] == {'spatial': 0.2, 'expression': 0.6, 'apa': 0.2}
+    assert preset['bioml_weights'] == {'spatial': 0.3, 'expression': 0.5, 'apa': 0.2}
     assert results['imputed_values'].shape == (dataset.n_genes, dataset.n_spots)
     assert results['domains']['method'] == 'spagapa_highres_bioml'
     assert results['domains']['metadata']['mode'] == 'highres_bioml'
+    assert results['domains']['metadata']['highres']['config']['spatial_weight'] == 0.3
+    assert results['domains']['metadata']['highres']['config']['expression_weight'] == 0.5
     assert results['highres_bioml_values'].shape == (dataset.n_genes, dataset.n_spots)
 
 
