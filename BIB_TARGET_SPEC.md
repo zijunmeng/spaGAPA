@@ -4466,6 +4466,221 @@ conda run -n spagapa pytest \
 
 ---
 
+### 23.28 真实数据 benchmark 主干与 readiness registry 已接入
+
+本轮目标：
+
+1. 不再用“手工知道有哪些真实数据”的方式推进 benchmark。
+2. 建立 prepared real-data registry，自动判断每个数据集是否能进入：
+   - external biological validation；
+   - high-resolution default validation；
+   - metaAPA-style site-level readiness。
+3. 增加一键 real-data suite orchestrator，使后续新增第二/第三个数据集后可以直接
+   加入同一套 BIB 级真实数据 benchmark。
+
+#### 新增实现
+
+新增：
+
+```text
+spagapa/benchmark/real_data_registry.py
+scripts/run_real_data_suite.py
+tests/unit/test_real_data_registry.py
+tests/integration/test_real_data_suite.py
+```
+
+并在 `spagapa/benchmark/__init__.py` 中导出：
+
+```text
+PreparedDatasetStatus
+check_prepared_dataset
+discover_prepared_datasets
+statuses_to_dataframe
+summarize_bib_readiness
+```
+
+#### readiness 检查标准
+
+必需文件：
+
+```text
+apa_matrix.csv
+coordinates.csv
+```
+
+推荐/增强文件：
+
+```text
+metadata.csv
+metadata.layer
+expression_matrix.csv
+stapaminer_rud_imputed.csv
+stapaminer_rud_raw.csv
+apa_sites.csv(.gz)
+apa_site_counts.csv(.gz)
+qc_summary.json
+```
+
+判定逻辑：
+
+```text
+required_ready:
+  apa_matrix.csv + coordinates.csv 可读
+
+external_validation_ready:
+  required_ready + metadata.csv + layer labels
+
+highres_validation_ready:
+  external_validation_ready + expression_matrix.csv
+
+metaapa_readiness:
+  partial_site_level if apa_sites + apa_site_counts are present
+```
+
+当前 BIB-ready gate 暂定：
+
+```text
+n_external_validation_ready >= 3
+n_highres_validation_ready >= 1
+n_site_level_partial_ready >= 2
+```
+
+#### 真实 MOB readiness suite v1
+
+运行命令：
+
+```bash
+conda run -n spagapa python scripts/run_real_data_suite.py \
+  --processed-root data/processed \
+  --output-dir benchmark_results/real/real_data_suite_v1
+```
+
+输出目录：
+
+```text
+spaGAPA/benchmark_results/real/real_data_suite_v1/
+```
+
+核心输出：
+
+```text
+real_data_readiness.csv
+real_data_readiness_summary.json
+real_data_suite_run_manifest.csv
+decision_summary.json
+```
+
+当前 readiness 表：
+
+```text
+dataset        n_genes  n_spots  observed_fraction  external_ready  highres_ready  metaapa_readiness
+stapaminer_mob 4845     260      0.467335           true            true           partial_site_level
+```
+
+当前 BIB readiness summary：
+
+```text
+n_datasets = 1
+n_external_validation_ready = 1
+n_highres_validation_ready = 1
+n_site_level_partial_ready = 1
+bib_ready = false
+next_required = Add and standardize more external real datasets before claiming BIB-scale real-data evidence.
+```
+
+#### suite 调度验证
+
+为确认 `run_real_data_suite.py` 不只是 readiness 表，本轮还用它调度了一轮轻量
+external validation：
+
+```bash
+conda run -n spagapa python scripts/run_real_data_suite.py \
+  --processed-root data/processed \
+  --output-dir benchmark_results/real/real_data_suite_v1 \
+  --run-external \
+  --external-methods raw,stapaminer_knn_expression \
+  --skip-downstream \
+  --n-genes 24 \
+  --min-observed-spots 80
+```
+
+run manifest：
+
+```text
+dataset        track                status
+stapaminer_mob external_validation  completed
+```
+
+轻量 external validation 输出：
+
+```text
+benchmark_results/real/real_data_suite_v1/external_validation/stapaminer_mob/
+```
+
+结果摘要：
+
+```text
+method                    layer_ari  layer_nmi  layer_purity  runtime_s
+raw                       0.048216   0.103476   0.342308      0.000000
+stapaminer_knn_expression 0.060166   0.108514   0.361538      0.141049
+```
+
+注意：这轮 external validation 是 suite 调度 smoke，只跑了 raw 和
+stAPAminer-like expression KNN，且跳过 downstream；完整方法比较仍以
+`external_bioml_validation_v1` 和后续多数据集正式 suite 为准。
+
+#### 测试
+
+```text
+conda run -n spagapa python -m py_compile \
+  spagapa/benchmark/real_data_registry.py \
+  scripts/run_real_data_suite.py
+
+conda run -n spagapa pytest \
+  tests/unit/test_real_data_registry.py \
+  tests/integration/test_real_data_suite.py \
+  -q
+```
+
+结果：
+
+```text
+4 passed
+```
+
+#### 结论
+
+1. spaGAPA 现在已有真实数据 benchmark 主干：
+   - 数据集发现；
+   - readiness 判断；
+   - BIB-ready gate；
+   - real-data suite 调度入口。
+2. 当前 MOB 数据集质量足够进入 external/highres/site-level 三条轨道。
+3. 但 BIB 级真实数据证据仍不够，因为目前只有 1 个标准化真实数据集。
+4. 下一步不应继续只在 MOB 上调参，而应优先下载并标准化第二/第三个真实数据集，
+   然后用同一套 suite 复跑：
+   - `external_validation`
+   - `highres_default_validation`
+   - stAPAminer/metaAPA protocol alignment。
+
+#### 下一步
+
+1. 建立 `docs/real_data_benchmark_protocol.md`，固定真实数据目录格式和纳入标准。
+2. 下载第二个真实数据集，优先 brain/layer，并标准化为：
+   - `apa_matrix.csv`
+   - `coordinates.csv`
+   - `metadata.csv`
+   - `expression_matrix.csv`
+3. 将 `run_real_data_suite.py --run-highres-default` 扩展到多数据集。
+4. 在 real-data suite 里加入正式 full external validation profile：
+   - raw；
+   - stAPAminer original；
+   - stAPAminer expression KNN；
+   - spaGAPA GP；
+   - spaGAPA BioML/highres。
+
+---
+
 ## 24. 最终目标陈述
 
 spaGAPA 面向 BIB 的最终目标不是证明“我们写了一个包”，而是证明：
