@@ -118,7 +118,7 @@ class SpaGAPA:
         bioml_spatial_weight: float = 0.4,
         bioml_expression_weight: float = 0.4,
         bioml_apa_weight: float = 0.2,
-        highres_bioml_gp_blend: float = 0.3,
+        highres_bioml_gp_blend: float = 0.1,
         highres_bioml_spatial_weight: Optional[float] = None,
         highres_bioml_expression_weight: Optional[float] = None,
         highres_bioml_apa_weight: Optional[float] = None,
@@ -230,8 +230,8 @@ class SpaGAPA:
             and abs(self.bioml_apa_weight - 0.2) < 1e-12
         )
         if default_weights:
-            params['spatial_weight'] = 0.2
-            params['expression_weight'] = 0.6
+            params['spatial_weight'] = 0.1
+            params['expression_weight'] = 0.7
             params['apa_weight'] = 0.2
         if self.highres_bioml_spatial_weight is not None:
             params['spatial_weight'] = self.highres_bioml_spatial_weight
@@ -242,7 +242,7 @@ class SpaGAPA:
 
         if resolved_preset == 'highres_fast' and abs(self.bioml_blend - 0.1) < 1e-12:
             params['blend'] = 0.0
-        if resolved_preset == 'highres_fast' and abs(self.highres_bioml_gp_blend - 0.3) < 1e-12:
+        if resolved_preset == 'highres_fast' and abs(self.highres_bioml_gp_blend - 0.1) < 1e-12:
             params['highres_gp_blend'] = 0.0
         return params
 

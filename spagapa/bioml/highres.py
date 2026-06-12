@@ -27,9 +27,9 @@ from .multiview_graph import MultiViewGraphBuilder
 class HighResBioMLConfig:
     """Configuration for high-resolution decoupled BioML recovery."""
 
-    gp_blend: float = 0.3
-    spatial_weight: float = 0.2
-    expression_weight: float = 0.6
+    gp_blend: float = 0.1
+    spatial_weight: float = 0.1
+    expression_weight: float = 0.7
     apa_weight: float = 0.2
     apa_source: str = "expression_knn"
     expression_knn_k: int = 15

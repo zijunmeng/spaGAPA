@@ -222,6 +222,48 @@ def test_analysis_preset_highres_accuracy_enables_sparse_bioml():
     assert results['highres_bioml_values'].shape == (dataset.n_genes, dataset.n_spots)
 
 
+def test_analysis_preset_highres_accuracy_uses_validated_defaults():
+    dataset = make_toy_dataset(n_genes=5, grid_size=5)
+    expression_embedding = np.column_stack(
+        [
+            dataset.coords[:, 0],
+            dataset.coords[:, 1],
+            dataset.coords[:, 0] + dataset.coords[:, 1],
+        ]
+    )
+    pipeline = SpaGAPA(
+        analysis_preset='highres_accuracy',
+        n_neighbors=4,
+        n_inducing=8,
+        min_spots=3,
+        bioml_rank=3,
+        bioml_max_iter=3,
+        bioml_n_neighbors=4,
+        verbose=False,
+    )
+
+    results = pipeline.run(
+        dataset=dataset,
+        expression_embedding=expression_embedding,
+        impute=True,
+        quantify=True,
+        identify_domains=True,
+        differential_analysis=False,
+        detect_svapa=False,
+        n_domains=2,
+    )
+
+    preset = results['analysis_preset']
+    assert preset['resolved_preset'] == 'highres_accuracy'
+    assert preset['highres_bioml_gp_blend'] == 0.1
+    assert preset['bioml_weights'] == {'spatial': 0.1, 'expression': 0.7, 'apa': 0.2}
+    highres = results['domains']['metadata']['highres']
+    assert highres['gp_blend_effective'] == 0.1
+    assert highres['config']['spatial_weight'] == 0.1
+    assert highres['config']['expression_weight'] == 0.7
+    assert highres['config']['apa_weight'] == 0.2
+
+
 def test_analysis_preset_highres_fast_skips_gp_but_runs_bioml():
     dataset = make_toy_dataset(n_genes=5, grid_size=5)
     expression_embedding = np.column_stack(

@@ -4274,6 +4274,198 @@ spaGAPA 主 pipeline 的候选主线：
 
 ---
 
+### 23.27 highres 默认参数已完成真实数据验证并正式迁移
+
+#### 关于“什么时候用真实数据做 benchmark”
+
+当前结论需要分成两层：
+
+1. **已经在做真实数据 benchmark**：
+   - `stapaminer_mob` 是真实/发表 MOB spatial APA 数据。
+   - `external_bioml_validation_v1`、`pipeline_highres_suite_v1`、
+     `highres_default_validation_v1` 都是围绕真实 MOB 数据展开。
+   - high-resolution 相关实验目前采用真实 MOB APA/expression/metadata 作为 parent
+     tissue scaffold，再做 pseudo-bin stress test，用于验证高分辨率模式的鲁棒性。
+2. **还没达到 BIB 级“完整真实数据 benchmark”**：
+   - 目前标准化完成的真实数据集仍主要是 `stapaminer_mob`。
+   - BIB 级需要至少 2-3 个外部真实数据集，最好覆盖：
+     - MOB / brain layer；
+     - tumor or tissue region；
+     - high-resolution spatial platform with usable 3-prime/poly(A) information。
+   - 还需要更完整地复现原始 stAPAminer/metaAPA 实验，不只使用 faithful
+     reimplementation。
+
+因此，回答是：
+
+> 真实数据 benchmark 已经开始并支撑当前 highres 默认选择；但 BIB 级真实数据
+> benchmark 的下一道硬门槛，是下载并标准化更多外部真实数据集。
+
+#### 新增实现
+
+新增：
+
+```text
+scripts/run_highres_default_validation.py
+tests/integration/test_highres_default_validation.py
+```
+
+该 runner 固定比较两套参数：
+
+```text
+current_default
+  gp_blend = 0.3
+  spatial  = 0.2
+  expr     = 0.6
+  apa      = 0.2
+
+candidate_default
+  gp_blend = 0.1
+  spatial  = 0.1
+  expr     = 0.7
+  apa      = 0.2
+```
+
+评价方式：
+
+- 真实 MOB parent spots；
+- pseudo-highres 2x / 4x / 8x；
+- seeds = 42,43,44；
+- dropout stress = 0.10, 0.25, 0.40；
+- primary method = `pipeline_highres_accuracy`。
+
+#### 真实 MOB current-vs-candidate validation v1
+
+输出目录：
+
+```text
+spaGAPA/benchmark_results/real/highres_default_validation_v1/
+```
+
+核心输出：
+
+```text
+highres_default_validation_results_long.csv
+highres_default_validation_summary.csv
+decision_summary.json
+figures/highres_default_validation_metrics.png
+figures/highres_default_validation_scaling.png
+```
+
+运行规模：
+
+```text
+162 rows
+current_default:   81 rows
+candidate_default: 81 rows
+```
+
+Primary mean：
+
+```text
+config             rmse_holdout  parent_rmse  layer_ari  layer_nmi  runtime_s
+candidate_default   0.084549      0.064337     0.339013   0.442551   2.402694
+current_default     0.083351      0.065034     0.317341   0.426712   2.398668
+```
+
+Candidate minus current：
+
+```text
+rmse_delta        = +0.001198
+parent_rmse_delta = -0.000697
+layer_ari_delta   = +0.021672
+layer_nmi_delta   = +0.015839
+runtime_ratio     = 1.002
+```
+
+按 pseudo-bin density：
+
+```text
+subbins  rmse_delta  layer_ari_delta  layer_nmi_delta
+2        -0.001450   +0.023879        +0.014838
+4        +0.001574   +0.018847        +0.002771
+8        +0.003469   +0.022290        +0.029908
+```
+
+按 dropout stress：
+
+```text
+dropout  config             rmse_holdout  parent_rmse  layer_ari  layer_nmi
+0.10     candidate_default   0.084427      0.060990     0.329256   0.437100
+0.10     current_default     0.081973      0.060856     0.321941   0.430283
+0.25     candidate_default   0.084288      0.064073     0.347305   0.444419
+0.25     current_default     0.082771      0.064493     0.317363   0.429972
+0.40     candidate_default   0.084932      0.067949     0.340477   0.446134
+0.40     current_default     0.085310      0.069754     0.312719   0.419881
+```
+
+#### 默认参数迁移
+
+基于上述 gate，已正式将 high-resolution 默认从保守参数迁移为候选参数：
+
+```text
+highres_bioml_gp_blend          = 0.1
+highres_bioml_spatial_weight    = 0.1
+highres_bioml_expression_weight = 0.7
+highres_bioml_apa_weight        = 0.2
+```
+
+修改位置：
+
+```text
+spagapa/pipeline.py
+spagapa/cli.py
+spagapa/bioml/highres.py
+scripts/run_pipeline_highres_smoke.py
+scripts/run_high_resolution_simulation.py
+scripts/run_pipeline_highres_suite.py
+scripts/run_highres_bioml_suite.py
+```
+
+其中 `highres_fast` 仍自动将 effective GP blend 置为 0，保持 fast mode 的语义。
+旧默认参数保留在 `run_highres_default_validation.py` 的 `current_default` 中，用作
+历史对照和回归检查。
+
+#### 测试
+
+```text
+conda run -n spagapa pytest \
+  tests/integration/test_pipeline_toy.py \
+  tests/unit/test_highres_bioml.py \
+  tests/integration/test_pipeline_highres_smoke.py \
+  tests/integration/test_pipeline_highres_suite.py \
+  tests/integration/test_highres_default_validation.py \
+  tests/integration/test_high_resolution_simulation.py \
+  -q
+```
+
+结果：
+
+```text
+16 passed
+```
+
+#### 结论
+
+1. 候选默认明显提升 biological consistency：
+   - layer ARI +0.021672；
+   - layer NMI +0.015839。
+2. RMSE 代价很小：
+   - holdout RMSE +0.001198；
+   - parent RMSE 反而下降 -0.000697。
+3. runtime 基本不变：
+   - runtime ratio = 1.002。
+4. 因此 highres 默认迁移是合理的：spaGAPA 的 high-resolution 主线应优先保证
+   biological domain consistency，同时守住 APA value recovery 的误差上限。
+
+#### 下一步
+
+1. 下载并标准化第二个真实数据集，优先选择 brain/layer 或 tumor region 数据。
+2. 把 current-vs-candidate validation runner 扩展到多数据集。
+3. 将 `analysis_preset='auto'` 的高分辨率判别阈值放到真实多数据集上校准。
+4. 继续复现 stAPAminer/metaAPA 论文中的实验设置，形成 BIB 级 baseline protocol。
+
+---
+
 ## 24. 最终目标陈述
 
 spaGAPA 面向 BIB 的最终目标不是证明“我们写了一个包”，而是证明：

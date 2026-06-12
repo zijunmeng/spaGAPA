@@ -143,14 +143,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--highres-bioml-gp-blend",
         type=float,
-        default=0.3,
+        default=0.1,
         help=(
             "Sparse-GP contribution for highres_bioml value recovery. "
             "The remaining weight uses raw gene-mean fill."
         ),
     )
-    parser.add_argument("--highres-bioml-spatial-weight", type=float, default=0.2)
-    parser.add_argument("--highres-bioml-expression-weight", type=float, default=0.6)
+    parser.add_argument("--highres-bioml-spatial-weight", type=float, default=0.1)
+    parser.add_argument("--highres-bioml-expression-weight", type=float, default=0.7)
     parser.add_argument("--highres-bioml-apa-weight", type=float, default=0.2)
     parser.add_argument(
         "--highres-bioml-neighbor-mode",

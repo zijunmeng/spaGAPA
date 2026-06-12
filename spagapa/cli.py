@@ -129,7 +129,7 @@ _opt_analysis_preset = click.option(
               help='BioML expression graph weight.')
 @click.option('--bioml-apa-weight', default=0.2, show_default=True,
               help='BioML APA graph weight.')
-@click.option('--highres-bioml-gp-blend', default=0.3, show_default=True,
+@click.option('--highres-bioml-gp-blend', default=0.1, show_default=True,
               help='Sparse-GP contribution for high-resolution BioML value recovery.')
 @click.option('--highres-bioml-spatial-weight', default=None, type=float,
               help='High-resolution BioML spatial graph weight.')

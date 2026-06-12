@@ -40,7 +40,15 @@ HIGHRES_SCRIPT = PACKAGE_ROOT / "scripts" / "run_high_resolution_simulation.py"
 
 GRAPH_SWEEPS = [
     {
-        "name": "default_s020_e060_a020_exprknn",
+        "name": "default_s010_e070_a020_exprknn",
+        "spatial_weight": 0.1,
+        "expression_weight": 0.7,
+        "apa_weight": 0.2,
+        "apa_source": "expression_knn",
+        "gp_blend": 0.1,
+    },
+    {
+        "name": "legacy_default_s020_e060_a020_exprknn",
         "spatial_weight": 0.2,
         "expression_weight": 0.6,
         "apa_weight": 0.2,
@@ -93,32 +101,32 @@ GRAPH_SWEEPS = [
 GP_BLEND_SWEEPS = [
     {
         "name": "gp_blend_0.0",
-        "spatial_weight": 0.2,
-        "expression_weight": 0.6,
+        "spatial_weight": 0.1,
+        "expression_weight": 0.7,
         "apa_weight": 0.2,
         "apa_source": "expression_knn",
         "gp_blend": 0.0,
     },
     {
         "name": "gp_blend_0.1",
-        "spatial_weight": 0.2,
-        "expression_weight": 0.6,
+        "spatial_weight": 0.1,
+        "expression_weight": 0.7,
         "apa_weight": 0.2,
         "apa_source": "expression_knn",
         "gp_blend": 0.1,
     },
     {
         "name": "gp_blend_0.3",
-        "spatial_weight": 0.2,
-        "expression_weight": 0.6,
+        "spatial_weight": 0.1,
+        "expression_weight": 0.7,
         "apa_weight": 0.2,
         "apa_source": "expression_knn",
         "gp_blend": 0.3,
     },
     {
         "name": "gp_blend_0.5",
-        "spatial_weight": 0.2,
-        "expression_weight": 0.6,
+        "spatial_weight": 0.1,
+        "expression_weight": 0.7,
         "apa_weight": 0.2,
         "apa_source": "expression_knn",
         "gp_blend": 0.5,
