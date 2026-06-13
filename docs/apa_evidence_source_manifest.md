@@ -159,26 +159,76 @@ tar -xOf data/raw/gse153859/GSE153859_RAW.tar GSM4656180_CBS1-illumina.tar.gz | 
 tar -xOf data/raw/gse153859/GSE153859_RAW.tar GSM4656183_CBS1-SiT.tar.gz | tar -tzf -
 ```
 
-Planned SRA download and FASTQ conversion for CBS1:
+Completed SRA download and FASTQ conversion for CBS1:
 
 ```bash
-mkdir -p data/raw/gse153859/sra data/raw/gse153859/fastq/CBS1
-prefetch SRR12157783 --output-directory data/raw/gse153859/sra
-fasterq-dump data/raw/gse153859/sra/SRR12157783/SRR12157783.sra \
+mkdir -p data/raw/gse153859/sra_aria2 data/raw/gse153859/fastq/CBS1
+printf '%s\n' \
+  'https://sra-pub-run-odp.s3.amazonaws.com/sra/SRR12157783/SRR12157783' \
+  > data/raw/gse153859/sra_aria2/SRR12157783.links.txt
+
+aria2c \
+  --input-file=data/raw/gse153859/sra_aria2/SRR12157783.links.txt \
+  --dir=data/raw/gse153859/sra_aria2 \
+  --check-certificate=false \
+  --max-concurrent-downloads=1 \
+  --max-connection-per-server=8 \
+  --split=8 \
+  --min-split-size=20M \
+  --continue=true \
+  --auto-file-renaming=false
+
+mv data/raw/gse153859/sra_aria2/SRR12157783 \
+  data/raw/gse153859/sra_aria2/SRR12157783.sra
+
+fasterq-dump \
+  -O /tmp/spagapa_fasterq_srr12157783/out \
+  -t /tmp/spagapa_fasterq_srr12157783/tmp \
+  -e 8 \
+  -p \
   --split-files \
-  --threads 8 \
-  --temp /tmp \
-  --outdir data/raw/gse153859/fastq/CBS1
+  --include-technical \
+  data/raw/gse153859/sra_aria2/SRR12157783.sra
+
+pigz -p 8 /tmp/spagapa_fasterq_srr12157783/out/SRR12157783_1.fastq
+mv /tmp/spagapa_fasterq_srr12157783/out/SRR12157783_1.fastq.gz \
+  data/raw/gse153859/fastq/CBS1/SRR12157783_1.fastq.gz
 ```
 
-Before running the SRA download, check available storage. The SRA file is about
-7.7 GB and the expanded FASTQ plus downstream BAM may require tens of GB.
+Implementation notes:
+
+- The S3/`aria2c` route follows the local reference workflow in
+  `01_ref_codes/GSE171306_src`.
+- `SRR12157783.sra` was downloaded and matched the expected S3 object size:
+  `8,118,305,016` bytes.
+- A sandboxed `fasterq-dump` run failed because this SRA needs RefSeq
+  dependencies such as `NC_000072.6`, `NC_000074.6`, and `NC_005089.1`.
+  Re-running `fasterq-dump` with network access resolved the dependency lookup.
+- `fasterq-dump` reported `217,143,116` spots/reads read and written.
+- The resulting compressed FASTQ is:
+  `data/raw/gse153859/fastq/CBS1/SRR12157783_1.fastq.gz`
+  (`7,096,935,823` bytes).
+- `pigz -t` completed without error.
+- Initial read-structure audit:
+  - `GSE153859_runinfo.csv` reports `LibraryLayout=PAIRED`, but also
+    `spots_with_mates=0` and `avgLength=91`.
+  - `fasterq-dump` produced one FASTQ file.
+  - A 1,000-read gzip sample found all reads are length 91.
+  - Example headers are plain SRA headers such as
+    `@SRR12157783.1 1 length=91`.
+  - No obvious spatial barcode or UMI field was observed in read headers.
+- This suggests the public SRA object may only expose the cDNA read needed for
+  expression/spatial counting, not the barcode/UMI mate needed to reconstruct a
+  molecule-level Visium BAM. The next decision point is to locate original
+  R1/R2 FASTQ or BAM for CBS1/CBS2, or to treat this dataset as
+  expression/spatial support rather than true APA evidence.
 
 ## 7. Planned APA Calling Route
 
 Preferred route:
 
-1. Download `SRR12157783` FASTQ.
+1. Search for original CBS1/CBS2 R1/R2 FASTQ or BAM outside the SRA-lite/public
+   cDNA object.
 2. Align and barcode/UMI-preserve the reads into a BAM compatible with APA
    callers.
 3. Run one or more APA callers:

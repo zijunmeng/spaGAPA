@@ -301,9 +301,22 @@ Current conclusions:
 3. `GSE153859_RAW.tar` has been downloaded locally and contains Visium
    expression/spatial files plus Nanopore isoform matrices, but no direct
    PAS/APA call table.
-4. Therefore, the next true-APA step is to download CBS1/CBS2 Illumina SRA
-   FASTQ and generate BAM/PAS calls using scAPAtrap, Sierra, polyApipe, or
-   metaAPA-style integration.
+4. CBS1 Illumina `SRR12157783` has been downloaded through the public SRA S3
+   object route and converted to FASTQ:
+   `data/raw/gse153859/fastq/CBS1/SRR12157783_1.fastq.gz`.
+5. The conversion produced one FASTQ file rather than a conventional paired
+   FASTQ pair. The next true-APA step is therefore a read-structure audit:
+   inspect whether spatial barcode and UMI information are represented in read
+   names, sequence segments, or another SRA-derived layout.
+6. Initial audit found plain SRA headers and uniform 91 bp reads in a 1,000-read
+   sample, with no obvious barcode/UMI field. RunInfo also reports
+   `spots_with_mates=0`. This may be an SRA-lite/cDNA-only object rather than a
+   full Visium R1/R2 submission.
+7. If original R1/R2 FASTQ or BAM can be located, generate BAM/PAS calls using
+   scAPAtrap, Sierra, polyApipe, or metaAPA-style integration.
+8. If original R1/R2 FASTQ or BAM cannot be located, keep `GSE153859` as
+   expression/spatial biological support only and choose another brain/layer
+   dataset for true APA evidence.
 
 Do not count `GSE153859` as APA-ready until the resulting `apa_matrix.csv` and
 site-level audit files are produced.

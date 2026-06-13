@@ -5009,24 +5009,69 @@ MOB  Illumina: GSM4656181 / SRR12157784 / 8,426 MB
 2. CBS2 可作为 replicate validation。
 3. MOB 可用于与 stAPAminer MOB 叙事交叉验证，但不是第二数据集的首选。
 
-#### 下一步 calling 路线
+#### 已完成的 SRA/FASTQ 准备
 
-准备命令已经写入 `docs/apa_evidence_source_manifest.md`。核心路线：
+最初尝试 `prefetch` 可行但速度很慢；随后参考
+`01_ref_codes/GSE171306_src` 中的下载策略，改用 NCBI public SRA S3 object
+直链加 `aria2c` 多连接下载：
 
 ```bash
-prefetch SRR12157783 --output-directory data/raw/gse153859/sra
-fasterq-dump data/raw/gse153859/sra/SRR12157783/SRR12157783.sra \
-  --split-files \
-  --threads 8 \
-  --temp /tmp \
-  --outdir data/raw/gse153859/fastq/CBS1
+https://sra-pub-run-odp.s3.amazonaws.com/sra/SRR12157783/SRR12157783
 ```
 
-然后进入：
+当前本地文件：
+
+```text
+data/raw/gse153859/sra_aria2/SRR12157783.sra
+  size: 8,118,305,016 bytes
+
+data/raw/gse153859/fastq/CBS1/SRR12157783_1.fastq.gz
+  size: 7,096,935,823 bytes
+```
+
+`fasterq-dump` 第一次在 sandbox 网络受限条件下失败，原因是该 SRA 需要
+RefSeq 依赖，例如 `NC_000072.6`、`NC_000074.6`、`NC_005089.1`。使用网络
+权限重跑后，`fasterq-dump` 正常完成：
+
+```text
+spots read:    217,143,116
+reads read:    217,143,116
+reads written: 217,143,116
+```
+
+压缩文件已通过 `pigz -t` 校验。
+
+#### 下一步 calling 路线
+
+该 run 转换后只得到一个 FASTQ 文件，而不是常规 paired FASTQ。因此在进入
+Cell Ranger/scAPAtrap/Sierra/polyApipe 之前，必须先做 read-structure audit：
+
+初步 audit 结果：
+
+1. `GSE153859_runinfo.csv` 对 `SRR12157783` 的记录为：
+   - `LibraryLayout=PAIRED`
+   - `spots_with_mates=0`
+   - `avgLength=91`
+   - `spots=217,143,116`
+2. `fasterq-dump` 实际只产生：
+   `data/raw/gse153859/fastq/CBS1/SRR12157783_1.fastq.gz`
+3. 抽样 1,000 条 read，长度全部为 91 bp。
+4. FASTQ header 是普通 SRA header，例如：
+   `@SRR12157783.1 1 length=91`
+5. header 中没有明显 spatial barcode / UMI 字段。
+
+这说明公开 SRA object 很可能只暴露 cDNA read，而不是可重建 Visium
+barcode/UMI 的完整 R1/R2 FASTQ。因此：
+
+1. 若能找到原始 R1/R2 FASTQ 或 BAM，再进入：
 
 ```text
 FASTQ -> barcode/UMI-aware alignment -> BAM -> scAPAtrap/Sierra/polyApipe/metaAPA -> apa_matrix.csv + apa_sites.csv + apa_site_counts.csv
 ```
+
+2. 若 barcode/UMI 不可恢复，则需要切换到 CBS1/CBS2 的可用 Visium
+   expression/spatial 文件作为 expression-only support，或改找带完整 FASTQ/BAM
+   的 brain/layer 数据集。
 
 目标输出：
 
@@ -5046,10 +5091,10 @@ data/processed/gse153859_cbs1_apa/
 1. 任务不是失败，而是数据证据边界更清楚了。
 2. 10x human brain section 暂时不能作为真实 APA benchmark。
 3. `GSE153859 CBS1/CBS2` 是当前最值得推进的第二 brain/layer 数据路线。
-4. 下一步可以开始下载 `SRR12157783`，但需要预留几十 GB 空间：
-   - SRA 本身约 7.7 GB；
-   - FASTQ 展开后更大；
-   - downstream BAM 和 APA caller 中间文件还会继续占用空间。
+4. `SRR12157783` 已完成 SRA 下载和 FASTQ 转换，但还不能直接算 APA-ready。
+5. 初步 read-structure audit 显示公开 SRA 可能缺失 Visium barcode/UMI mate。
+6. 当前最关键的下一步是寻找原始 R1/R2 FASTQ 或 BAM；若找不到，应快速转向
+   另一个带完整 APA evidence 的 brain/layer 数据集。
 
 ---
 
