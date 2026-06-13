@@ -4681,6 +4681,198 @@ conda run -n spagapa pytest \
 
 ---
 
+### 23.29 真实数据 protocol 已固定，第二个 brain candidate 已开始标准化
+
+本轮目标：
+
+1. 固定真实数据 benchmark 纳入标准，防止把 expression-derived proxy 当成真实 APA。
+2. 开始推进第二个 brain/layer 数据集。
+3. 将第二个数据先标准化为 expression-only candidate，等待后续真实 APA/PAS calling。
+
+#### 新增 protocol 文档
+
+新增：
+
+```text
+docs/real_data_benchmark_protocol.md
+```
+
+核心原则：
+
+1. `apa_matrix.csv` 必须来自真实 APA/PAS 证据：
+   - 发表 APA index；
+   - PAS/site counts；
+   - BAM/FASTQ 重新 calling；
+   - scAPAtrap/metaAPA/Sierra/polyApipe 等真实 caller 输出。
+2. 不允许将 gene expression 归一化、平滑、随机模拟结果计入 BIB 真实 APA benchmark。
+3. expression-only 数据可以纳入候选池，但必须标记：
+
+```text
+apa_ready = false
+apa_source = expression_only_candidate
+```
+
+#### 新增 expression-only Visium 标准化脚本
+
+新增：
+
+```text
+scripts/prepare_visium_expression_dataset.py
+tests/integration/test_prepare_visium_expression_dataset.py
+```
+
+功能：
+
+1. 读取 10x Visium H5 或 CSV expression matrix。
+2. 读取 `spatial/tissue_positions*.csv`。
+3. 输出：
+
+```text
+expression_matrix.csv
+coordinates.csv
+metadata.csv
+qc_summary.json
+```
+
+4. 明确不生成 `apa_matrix.csv`。
+
+同时修正：
+
+```text
+scripts/download_benchmark_data.sh
+scripts/prepare_benchmark_data.py
+spagapa/benchmark/real_data_registry.py
+tests/unit/test_real_data_registry.py
+```
+
+修正内容：
+
+1. `download_benchmark_data.sh` 使用 10x 官方实际文件名：
+   - `V1_Human_Brain_Section_1_filtered_feature_bc_matrix.h5`
+   - `V1_Human_Brain_Section_1_spatial.tar.gz`
+2. `prepare_benchmark_data.py` 增加 deprecation warning：
+   - 该脚本会从 expression 生成 APA proxy；
+   - 不可用于 BIB 真实 APA benchmark。
+3. readiness registry 增加 `expression_only_candidate`、`n_expression_genes`、
+   `n_expression_spots` 字段。
+
+#### 第二个 brain candidate 下载与标准化
+
+下载数据：
+
+```text
+10x Genomics V1 Human Brain Section 1
+```
+
+raw 输入：
+
+```text
+data/raw/visium_human_brain_section1/
+  V1_Human_Brain_Section_1_filtered_feature_bc_matrix.h5
+  V1_Human_Brain_Section_1_spatial.tar.gz
+  spatial/
+```
+
+标准化输出：
+
+```text
+data/processed/visium_human_brain_section1_candidate/
+  expression_matrix.csv
+  coordinates.csv
+  metadata.csv
+  qc_summary.json
+```
+
+标准化命令：
+
+```bash
+conda run -n spagapa python scripts/prepare_visium_expression_dataset.py \
+  --expression-h5 data/raw/visium_human_brain_section1/V1_Human_Brain_Section_1_filtered_feature_bc_matrix.h5 \
+  --spatial-dir data/raw/visium_human_brain_section1/spatial \
+  --output-dir data/processed/visium_human_brain_section1_candidate \
+  --dataset-id visium_human_brain_section1_candidate \
+  --source 10x_Genomics_V1_Human_Brain_Section_1 \
+  --platform "10x Visium" \
+  --species human \
+  --tissue brain \
+  --top-variable-genes 3000
+```
+
+结果：
+
+```text
+Expression genes: 3000
+Spots: 4910
+APA ready: false
+```
+
+`qc_summary.json` 关键字段：
+
+```text
+dataset = visium_human_brain_section1_candidate
+source = 10x_Genomics_V1_Human_Brain_Section_1
+platform = 10x Visium
+species = human
+tissue = brain
+apa_source = expression_only_candidate
+apa_ready = false
+expression_ready = true
+biological_labels_ready = false
+site_level_ready = false
+```
+
+#### 更新后的 real-data readiness
+
+运行：
+
+```bash
+conda run -n spagapa python scripts/run_real_data_suite.py \
+  --processed-root data/processed \
+  --output-dir benchmark_results/real/real_data_suite_v1
+```
+
+当前 readiness 表：
+
+```text
+dataset                                  required_ready  external_ready  highres_ready  expression_only  n_expression_genes  n_expression_spots
+stapaminer_mob                            true            true            true           false            16218               260
+visium_human_brain_section1_candidate     false           false           false          true             3000                4910
+```
+
+当前 readiness summary：
+
+```text
+n_datasets = 2
+n_external_validation_ready = 1
+n_highres_validation_ready = 1
+n_site_level_partial_ready = 1
+bib_ready = false
+```
+
+#### 结论
+
+1. 第二个 brain 数据集已经开始纳入 spaGAPA 真实数据体系。
+2. 该数据目前是 expression-only candidate，不能计入真实 APA benchmark。
+3. 这一步仍然有价值：
+   - 已验证下载/标准化/registry 流程可扩展到第二个真实空间数据；
+   - 已得到 4910 spots 的 human brain Visium scaffold；
+   - 后续一旦添加真实 APA/PAS calls，就可直接进入同一套 benchmark suite。
+4. BIB 级真实数据 benchmark 的下一步不是再模拟 APA，而是获取真实 APA 证据。
+
+#### 下一步
+
+1. 为 `visium_human_brain_section1_candidate` 获取真实 APA/PAS：
+   - 优先查找对应 10x BAM/FASTQ；
+   - 若 BAM 可用，运行 scAPAtrap/metaAPA/Sierra/polyApipe；
+   - 或寻找该 brain section 的发表 APA/PAS call table。
+2. 如果 10x brain 缺少可行 APA calling 输入，则寻找另一个公开 brain/layer 数据集，
+   要求自带 BAM/FASTQ 或 APA/PAS calls。
+3. 将 brain candidate 的 biological layer/region annotation 补入 `metadata.csv`。
+4. 在 `run_real_data_suite.py` 中增加 candidate report，单独列出 expression-only
+   datasets，不与 APA-ready datasets 混淆。
+
+---
+
 ## 24. 最终目标陈述
 
 spaGAPA 面向 BIB 的最终目标不是证明“我们写了一个包”，而是证明：

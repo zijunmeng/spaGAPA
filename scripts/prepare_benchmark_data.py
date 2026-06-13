@@ -1,11 +1,19 @@
 """
 Prepare real benchmark datasets for spaGAPA.
 
+Deprecated for BIB real-data APA benchmarks.
+
 This script:
 1. Loads 10x Visium H5 files
 2. Extracts spatial coordinates
 3. Runs scAPAtrap (via R) to get APA matrices
 4. Saves standardised CSV files for run_real_benchmark.py
+
+Important:
+    The current implementation simulates APA indices from expression when true
+    APA/PAS calls are unavailable. Do not use these outputs as BIB real-data APA
+    benchmarks. Use scripts/prepare_visium_expression_dataset.py for
+    expression-only candidates, then add real APA/PAS calls later.
 
 Usage:
     conda activate spagapa

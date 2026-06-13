@@ -45,6 +45,9 @@ class PreparedDatasetStatus:
     has_metadata: bool = False
     has_layer_labels: bool = False
     has_expression: bool = False
+    expression_only_candidate: bool = False
+    n_expression_genes: int | None = None
+    n_expression_spots: int | None = None
     has_stapaminer_original: bool = False
     has_site_table: bool = False
     has_site_counts: bool = False
@@ -98,11 +101,17 @@ def check_prepared_dataset(
     n_genes = None
     n_spots = None
     observed_fraction = None
+    n_expression_genes = None
+    n_expression_spots = None
     notes: list[str] = []
     if exists and not missing_required:
         n_genes, n_spots, observed_fraction, error = _read_csv_shape(data_dir / "apa_matrix.csv")
         if error is not None:
             notes.append(f"Failed to read apa_matrix.csv: {error}")
+    if exists and has_expression:
+        n_expression_genes, n_expression_spots, _, error = _read_csv_shape(data_dir / "expression_matrix.csv")
+        if error is not None:
+            notes.append(f"Failed to read expression_matrix.csv: {error}")
 
     missing_recommended = []
     if not has_metadata:
@@ -119,6 +128,14 @@ def check_prepared_dataset(
         missing_recommended.append("apa_site_counts.csv(.gz)")
 
     required_ready = exists and not missing_required and n_genes is not None and n_spots is not None
+    expression_only_candidate = (
+        exists
+        and not required_ready
+        and has_expression
+        and (data_dir / "coordinates.csv").exists()
+        and n_expression_genes is not None
+        and n_expression_spots is not None
+    )
     external_validation_ready = required_ready and has_metadata and has_layer_labels
     highres_validation_ready = external_validation_ready and has_expression
 
@@ -133,6 +150,8 @@ def check_prepared_dataset(
         notes.append("Dataset directory does not exist.")
     if missing_required:
         notes.append("Missing required files: " + ", ".join(missing_required))
+    if expression_only_candidate:
+        notes.append("Expression-only candidate: not counted as real APA benchmark until apa_matrix.csv is added.")
     if external_validation_ready and not has_expression:
         notes.append("External layer validation can run, but expression-aware baselines will be skipped.")
     if metaapa_readiness != "partial_site_level":
@@ -152,6 +171,9 @@ def check_prepared_dataset(
         has_metadata=has_metadata,
         has_layer_labels=has_layer_labels,
         has_expression=has_expression,
+        expression_only_candidate=expression_only_candidate,
+        n_expression_genes=n_expression_genes,
+        n_expression_spots=n_expression_spots,
         has_stapaminer_original=has_stapaminer_original,
         has_site_table=has_site_table,
         has_site_counts=has_site_counts,

@@ -82,3 +82,29 @@ def test_missing_required_dataset_not_ready(tmp_path):
     assert status.required_ready is False
     assert "apa_matrix.csv" in status.missing_required
     assert status.external_validation_ready is False
+
+
+def test_expression_only_candidate_is_visible_but_not_apa_ready(tmp_path):
+    dataset_dir = tmp_path / "brain_candidate"
+    dataset_dir.mkdir()
+    genes = [f"Gene_{i}" for i in range(4)]
+    spots = [f"Spot_{i}" for i in range(6)]
+    values = np.arange(len(genes) * len(spots)).reshape(len(genes), len(spots))
+
+    pd.DataFrame(values, index=genes, columns=spots).to_csv(dataset_dir / "expression_matrix.csv")
+    pd.DataFrame({"spot_id": spots, "x": np.arange(len(spots)), "y": 0.0}).to_csv(
+        dataset_dir / "coordinates.csv",
+        index=False,
+    )
+    pd.DataFrame({"spot_id": spots, "dataset": "brain_candidate"}).to_csv(
+        dataset_dir / "metadata.csv",
+        index=False,
+    )
+
+    status = check_prepared_dataset(dataset_dir)
+
+    assert status.required_ready is False
+    assert status.expression_only_candidate is True
+    assert status.n_expression_genes == 4
+    assert status.n_expression_spots == 6
+    assert status.highres_validation_ready is False

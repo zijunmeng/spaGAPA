@@ -22,15 +22,16 @@ echo "[1/3] Mouse Olfactory Bulb (MOB)"
 
 MOB_URL="https://cf.10xgenomics.com/samples/spatial-exp/1.1.0/V1_Mouse_Olfactory_Bulb"
 for f in \
-  "filtered_feature_bc_matrix.h5" \
-  "spatial.tar.gz"
+  "V1_Mouse_Olfactory_Bulb_filtered_feature_bc_matrix.h5" \
+  "V1_Mouse_Olfactory_Bulb_spatial.tar.gz"
 do
-  if [ ! -f "$MOB_DIR/$f" ]; then
-    echo "  Downloading $f ..."
-    wget -q -O "$MOB_DIR/$f" "${MOB_URL}/${f}" || \
-      curl -sL -o "$MOB_DIR/$f" "${MOB_URL}/${f}"
+  out="${f#V1_Mouse_Olfactory_Bulb_}"
+  if [ ! -f "$MOB_DIR/$out" ]; then
+    echo "  Downloading $out ..."
+    wget -q -O "$MOB_DIR/$out" "${MOB_URL}/${f}" || \
+      curl -sL -o "$MOB_DIR/$out" "${MOB_URL}/${f}"
   else
-    echo "  $f already exists, skipping."
+    echo "  $out already exists, skipping."
   fi
 done
 
@@ -47,15 +48,16 @@ echo "[2/3] Human Brain Cortex"
 
 BRAIN_URL="https://cf.10xgenomics.com/samples/spatial-exp/1.1.0/V1_Human_Brain_Section_1"
 for f in \
-  "filtered_feature_bc_matrix.h5" \
-  "spatial.tar.gz"
+  "V1_Human_Brain_Section_1_filtered_feature_bc_matrix.h5" \
+  "V1_Human_Brain_Section_1_spatial.tar.gz"
 do
-  if [ ! -f "$BRAIN_DIR/$f" ]; then
-    echo "  Downloading $f ..."
-    wget -q -O "$BRAIN_DIR/$f" "${BRAIN_URL}/${f}" || \
-      curl -sL -o "$BRAIN_DIR/$f" "${BRAIN_URL}/${f}"
+  out="${f#V1_Human_Brain_Section_1_}"
+  if [ ! -f "$BRAIN_DIR/$out" ]; then
+    echo "  Downloading $out ..."
+    wget -q -O "$BRAIN_DIR/$out" "${BRAIN_URL}/${f}" || \
+      curl -sL -o "$BRAIN_DIR/$out" "${BRAIN_URL}/${f}"
   else
-    echo "  $f already exists, skipping."
+    echo "  $out already exists, skipping."
   fi
 done
 
@@ -71,4 +73,6 @@ echo "  Place files in: $OUTDIR/embryo/"
 
 echo ""
 echo "=== Download complete ==="
-echo "Next step: run scripts/prepare_benchmark_data.py to extract APA matrices"
+echo "Next step for expression-only candidates:"
+echo "  python scripts/prepare_visium_expression_dataset.py ..."
+echo "Do not count expression-only Visium data as true APA benchmark until APA/PAS calls are added."
