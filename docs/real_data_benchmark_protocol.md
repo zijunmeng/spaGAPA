@@ -292,7 +292,7 @@ Current conclusions:
 1. The 10x `V1_Human_Brain_Section_1` sample has expression/spatial files and
    `molecule_info.h5`, but no publicly accessible BAM at the canonical 10x CDN
    path. It remains an expression-only candidate.
-2. `GSE153859` is now the preferred second brain/layer candidate:
+2. `GSE153859` was audited as a possible second brain/layer candidate:
    - GEO `GSE153859`
    - SRA `SRP270322`
    - BioProject `PRJNA644362`
@@ -314,9 +314,62 @@ Current conclusions:
    full Visium R1/R2 submission.
 7. If original R1/R2 FASTQ or BAM can be located, generate BAM/PAS calls using
    scAPAtrap, Sierra, polyApipe, or metaAPA-style integration.
-8. If original R1/R2 FASTQ or BAM cannot be located, keep `GSE153859` as
-   expression/spatial biological support only and choose another brain/layer
-   dataset for true APA evidence.
+8. Since the public SRA object appears to expose only a cDNA-like read, keep
+   `GSE153859` as expression/spatial biological support unless original R1/R2
+   FASTQ or BAM is found outside the current public SRA route.
 
 Do not count `GSE153859` as APA-ready until the resulting `apa_matrix.csv` and
 site-level audit files are produced.
+
+### `GSE179572` Human Brain Metastasis Visium Replacement Candidate
+
+`GSE179572` is now the preferred second real-data APA calling candidate.
+
+Reasons:
+
+1. It is fresh frozen human brain metastasis Visium, not FFPE probe-based
+   spatial data.
+2. GEO SOFT records six SRA-linked samples with matched expression/spatial
+   supplementary files.
+3. SRA XML confirms Visium-compatible public FASTQ evidence:
+   - `R1` / barcode-UMI read: 28 bp;
+   - `R2` / cDNA read: 90 bp;
+   - some lanes also include two 10 bp index reads.
+4. The smallest recommended validation run is:
+   `GSM5420751 / SRX11362761 / SRR15052395`, approximately 4.8 GB.
+
+Minimal validation command:
+
+```bash
+mkdir -p data/raw/gse179572/sra data/raw/gse179572/fastq/GSM5420751
+aria2c \
+  --dir=data/raw/gse179572/sra \
+  --out=SRR15052395.sra \
+  --check-certificate=false \
+  --max-connection-per-server=8 \
+  --split=8 \
+  --min-split-size=20M \
+  --continue=true \
+  'https://sra-pub-run-odp.s3.amazonaws.com/sra/SRR15052395/SRR15052395'
+fasterq-dump \
+  -O data/raw/gse179572/fastq/GSM5420751 \
+  -t /tmp/spagapa_fasterq_srr15052395 \
+  -e 8 \
+  -p \
+  --split-files \
+  --include-technical \
+  data/raw/gse179572/sra/SRR15052395.sra
+```
+
+Expected decision:
+
+- This validation passed on 2026-06-14.
+- `fasterq-dump` produced 4 FASTQ files from `SRR15052395`:
+  - `_1.fastq`: 28 bp barcode/UMI read;
+  - `_2.fastq`: 90 bp cDNA read;
+  - `_3.fastq`: 10 bp index read;
+  - `_4.fastq`: 10 bp index read.
+- Proceed to Space Ranger/Cell Ranger BAM generation and
+  scAPAtrap/Sierra/polyApipe APA calling.
+- `GSE179572` now replaces `GSE153859` as the active second true-APA dataset
+  route.

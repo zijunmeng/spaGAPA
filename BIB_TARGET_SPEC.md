@@ -5090,11 +5090,29 @@ data/processed/gse153859_cbs1_apa/
 
 1. 任务不是失败，而是数据证据边界更清楚了。
 2. 10x human brain section 暂时不能作为真实 APA benchmark。
-3. `GSE153859 CBS1/CBS2` 是当前最值得推进的第二 brain/layer 数据路线。
-4. `SRR12157783` 已完成 SRA 下载和 FASTQ 转换，但还不能直接算 APA-ready。
-5. 初步 read-structure audit 显示公开 SRA 可能缺失 Visium barcode/UMI mate。
-6. 当前最关键的下一步是寻找原始 R1/R2 FASTQ 或 BAM；若找不到，应快速转向
-   另一个带完整 APA evidence 的 brain/layer 数据集。
+3. `GSE153859 CBS1/CBS2` 已完成一次关键反证：`SRR12157783` 已完成 SRA
+   下载和 FASTQ 转换，但公开 SRA object 只产出一个 91 bp FASTQ。
+4. 初步 read-structure audit 显示公开 SRA 可能缺失 Visium barcode/UMI mate，
+   因此 `GSE153859` 暂时只能作为 expression/spatial support，不能计入真实
+   APA benchmark。
+5. 已筛到更合适的替代路线：`GSE179572` human brain metastasis fresh frozen
+   Visium。
+6. `GSE179572` 的 SRA XML 确认了 Visium-compatible FASTQ：
+   - `R1` barcode/UMI read: 28 bp；
+   - `R2` cDNA read: 90 bp；
+   - 部分 lane 还有两个 10 bp index reads。
+7. 最小推荐验证 run 为：
+   `GSM5420751 / SRX11362761 / SRR15052395`，约 4.8 GB。
+8. `SRR15052395` 已完成下载和 `fasterq-dump --split-files --include-technical`
+   验证：
+   - spots read: `113,316,797`
+   - reads read/written: `453,267,188`
+   - FASTQ outputs: `28 bp + 90 bp + 10 bp + 10 bp`
+9. 因此 `GSE179572` 已正式替代 `GSE153859`，成为当前第二个真实 APA calling
+   数据路线。
+10. 当前最关键的下一步是整理 `SRR15052395` 的 FASTQ 命名并运行
+    Space Ranger/Cell Ranger，生成 barcode/UMI-preserving BAM，然后进入
+    scAPAtrap/Sierra/polyApipe 生成 `apa_matrix.csv` 和 site-level audit。
 
 ---
 
