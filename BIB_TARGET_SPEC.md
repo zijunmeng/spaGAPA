@@ -4873,6 +4873,186 @@ bib_ready = false
 
 ---
 
+### 23.30 APA evidence source manifest 已建立，第二个 brain/layer 数据路线锁定 GSE153859
+
+本轮目标：
+
+1. 核查 10x human brain section 是否有可直接用于 APA calling 的 BAM/FASTQ/PAS。
+2. 如果没有，寻找更合适的 brain/layer 真实 APA 候选。
+3. 将证据搜索结果固化为可复现 manifest，避免后续把 expression-only 数据误计入真实
+   APA benchmark。
+
+#### 新增 APA evidence manifest
+
+新增：
+
+```text
+docs/apa_evidence_source_manifest.md
+```
+
+该文档记录：
+
+1. 已检查的数据源；
+2. 是否有真实 APA/PAS evidence；
+3. 哪些文件已下载到本地；
+4. 下一步下载/调用路线；
+5. 哪些数据仍只能作为 expression-only candidate。
+
+#### 10x `V1_Human_Brain_Section_1` 核查结论
+
+已确认可用：
+
+```text
+V1_Human_Brain_Section_1_filtered_feature_bc_matrix.h5
+V1_Human_Brain_Section_1_spatial.tar.gz
+V1_Human_Brain_Section_1_raw_feature_bc_matrix.h5
+V1_Human_Brain_Section_1_molecule_info.h5
+```
+
+其中 `molecule_info.h5` 大小约 129,941,082 bytes。
+
+但 canonical 10x CDN 路径下未找到：
+
+```text
+V1_Human_Brain_Section_1_possorted_genome_bam.bam
+V1_Human_Brain_Section_1_possorted_genome_bam.bam.bai
+```
+
+结论：
+
+1. 该 human brain 数据仍是 expression-only candidate。
+2. `molecule_info.h5` 不能替代 BAM/FASTQ/PAS table，因为它不足以提供 APA
+   site calling 需要的 read end / cleavage site 证据。
+3. 不能将它计入真实 APA benchmark。
+
+#### GSE153859 被锁定为第二个 brain/layer 候选
+
+GEO/SRA 信息：
+
+```text
+GEO:        GSE153859
+SRA:        SRP270322
+BioProject: PRJNA644362
+Title:      The spatial landscape of gene expression isoforms in tissue sections
+```
+
+该数据包含 mouse hippocampal brain Visium 样本 CBS1/CBS2，以及 MOB 样本。
+metaAPA 文献也使用了 CBS1/CBS2/MOBV1 作为空间转录组样本，并以 BAM 作为
+APA tools 输入，因此该数据与竞品 benchmark 叙事高度匹配。
+
+已下载本地文件：
+
+```text
+data/raw/gse153859/GSE153859_RAW.tar        176,271,360 bytes
+data/raw/gse153859/GSE153859_runinfo.csv         8,214 bytes
+```
+
+`GSE153859_RAW.tar` 内容：
+
+```text
+GSM4656179_CBS2-illumina.tar.gz
+GSM4656180_CBS1-illumina.tar.gz
+GSM4656181_MOB-illumina.tar.gz
+GSM4656182_CBS2-SiT.tar.gz
+GSM4656183_CBS1-SiT.tar.gz
+GSM4656184_MOB-SiT.tar.gz
+```
+
+嵌套内容检查：
+
+1. Illumina 包含：
+
+```text
+filtered_feature_bc_matrix.h5
+spatial/scalefactors_json.json
+spatial/tissue_hires_image.png
+spatial/tissue_lowres_image.png
+spatial/tissue_positions_list.csv
+```
+
+2. Nanopore/SiT 包含：
+
+```text
+*_genematrix.txt
+*_isomatrix.txt
+*_juncmatrix.txt
+*_snpmatrix.csv
+```
+
+关键判断：
+
+1. GEO RAW tar 提供 expression/spatial scaffold 和 long-read isoform 支持。
+2. 但它不包含直接可用的 PAS/poly(A) call table。
+3. 因此 GSE153859 还不能直接进入真实 APA benchmark。
+4. 真正入口是 SRA Illumina FASTQ/BAM calling。
+
+#### 优先下载/处理的 SRA runs
+
+```text
+CBS2 Illumina: GSM4656179 / SRR12157782 / 7,482 MB
+CBS1 Illumina: GSM4656180 / SRR12157783 / 7,742 MB
+MOB  Illumina: GSM4656181 / SRR12157784 / 8,426 MB
+```
+
+优先级：
+
+```text
+1. CBS1 / SRR12157783
+2. CBS2 / SRR12157782
+3. MOB  / SRR12157784
+```
+
+理由：
+
+1. CBS1/CBS2 是 brain/hippocampal spatial dataset，比继续只做 MOB 更能支撑
+   BIB 的多组织/多场景真实验证。
+2. CBS2 可作为 replicate validation。
+3. MOB 可用于与 stAPAminer MOB 叙事交叉验证，但不是第二数据集的首选。
+
+#### 下一步 calling 路线
+
+准备命令已经写入 `docs/apa_evidence_source_manifest.md`。核心路线：
+
+```bash
+prefetch SRR12157783 --output-directory data/raw/gse153859/sra
+fasterq-dump data/raw/gse153859/sra/SRR12157783/SRR12157783.sra \
+  --split-files \
+  --threads 8 \
+  --temp /tmp \
+  --outdir data/raw/gse153859/fastq/CBS1
+```
+
+然后进入：
+
+```text
+FASTQ -> barcode/UMI-aware alignment -> BAM -> scAPAtrap/Sierra/polyApipe/metaAPA -> apa_matrix.csv + apa_sites.csv + apa_site_counts.csv
+```
+
+目标输出：
+
+```text
+data/processed/gse153859_cbs1_apa/
+  apa_matrix.csv
+  apa_sites.csv
+  apa_site_counts.csv
+  coordinates.csv
+  expression_matrix.csv
+  metadata.csv
+  qc_summary.json
+```
+
+#### 当前结论
+
+1. 任务不是失败，而是数据证据边界更清楚了。
+2. 10x human brain section 暂时不能作为真实 APA benchmark。
+3. `GSE153859 CBS1/CBS2` 是当前最值得推进的第二 brain/layer 数据路线。
+4. 下一步可以开始下载 `SRR12157783`，但需要预留几十 GB 空间：
+   - SRA 本身约 7.7 GB；
+   - FASTQ 展开后更大；
+   - downstream BAM 和 APA caller 中间文件还会继续占用空间。
+
+---
+
 ## 24. 最终目标陈述
 
 spaGAPA 面向 BIB 的最终目标不是证明“我们写了一个包”，而是证明：

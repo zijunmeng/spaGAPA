@@ -278,3 +278,32 @@ For a brain Visium dataset with expression and coordinates but no APA evidence:
 3. do not include it in APA benchmark claims;
 4. later add APA by running scAPAtrap/metaAPA/Sierra/polyApipe on BAM/FASTQ or
    by importing published APA/PAS calls.
+
+## 9. Current APA Evidence Manifest
+
+Detailed evidence checks are tracked in:
+
+```text
+docs/apa_evidence_source_manifest.md
+```
+
+Current conclusions:
+
+1. The 10x `V1_Human_Brain_Section_1` sample has expression/spatial files and
+   `molecule_info.h5`, but no publicly accessible BAM at the canonical 10x CDN
+   path. It remains an expression-only candidate.
+2. `GSE153859` is now the preferred second brain/layer candidate:
+   - GEO `GSE153859`
+   - SRA `SRP270322`
+   - BioProject `PRJNA644362`
+   - CBS1 Illumina `SRR12157783`
+   - CBS2 Illumina `SRR12157782`
+3. `GSE153859_RAW.tar` has been downloaded locally and contains Visium
+   expression/spatial files plus Nanopore isoform matrices, but no direct
+   PAS/APA call table.
+4. Therefore, the next true-APA step is to download CBS1/CBS2 Illumina SRA
+   FASTQ and generate BAM/PAS calls using scAPAtrap, Sierra, polyApipe, or
+   metaAPA-style integration.
+
+Do not count `GSE153859` as APA-ready until the resulting `apa_matrix.csv` and
+site-level audit files are produced.
