@@ -173,24 +173,24 @@ class GraphRegularizedAPAFactorizer:
 
         last_error = np.inf
         n_iter = 0
+        eye_k = self.lambda_l2 * np.eye(self.rank)
         for iteration in range(1, self.max_iter + 1):
-            for gene_idx in range(n_genes):
-                g[gene_idx] = self._ridge_solve(
-                    z,
-                    filled[gene_idx],
-                    weights[gene_idx],
-                    self.lambda_l2,
-                )
+            # Batched gene ridge solve: replace the per-gene Python loop with
+            # a single vectorized einsum + batched solve. Mathematically
+            # identical to calling ``_ridge_solve`` once per gene (rows of
+            # ``weights`` that are all zero map to the zero RHS -> zero row,
+            # matching ``_ridge_solve``'s ``valid.sum() == 0`` branch).
+            lhs_g = np.einsum("sk,gs,sl->gkl", z, weights, z, optimize=True)
+            lhs_g += eye_k[None, :, :]
+            rhs_g = np.einsum("sk,gs,gs->gk", z, weights, filled, optimize=True)
+            g = np.linalg.solve(lhs_g, rhs_g[..., None])[..., 0]
 
-            z_raw = np.zeros_like(z)
-            design = g
-            for spot_idx in range(n_spots):
-                z_raw[spot_idx] = self._ridge_solve(
-                    design,
-                    filled[:, spot_idx],
-                    weights[:, spot_idx],
-                    self.lambda_l2,
-                )
+            # Batched spot ridge solve: replace the per-spot Python loop with
+            # one vectorized einsum + batched solve over all spots at once.
+            lhs_s = np.einsum("gk,gs,gl->skl", g, weights, g, optimize=True)
+            lhs_s += eye_k[None, :, :]
+            rhs_s = np.einsum("gk,gs,gs->sk", g, weights, filled, optimize=True)
+            z_raw = np.linalg.solve(lhs_s, rhs_s[..., None])[..., 0]
 
             if smoother is not None:
                 z = np.column_stack([smoother(z_raw[:, dim]) for dim in range(self.rank)])
