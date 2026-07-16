@@ -38,7 +38,7 @@ class HighResBioMLConfig:
     adaptive_neighbor_scale: float = 10.0
     parent_weight: float = 0.0
     parent_neighbors: int = 8
-    domain_method: str = "spectral"
+    domain_method: str = "kmeans"
     random_state: int = 42
 
     def to_dict(self) -> Dict:
@@ -330,13 +330,38 @@ def highres_bioml_recover(
         config,
     )
 
-    if config.domain_method != "spectral":
-        raise ValueError("HighResBioML currently supports spectral domain recovery")
-    labels = BioMLDomainDetector(
-        method="spectral",
-        n_domains=n_domains,
-        random_state=config.random_state,
-    ).fit_predict(graph=fused_graph)
+    domain_method = config.domain_method
+    if domain_method == "spectral" and fused_graph.shape[0] > 5000:
+        notes.append(f"domain_method auto-switched spectral→kmeans (n_spots={fused_graph.shape[0]} > 5000)")
+        domain_method = "kmeans"
+
+    if domain_method == "spectral":
+        labels = BioMLDomainDetector(
+            method="spectral",
+            n_domains=n_domains,
+            random_state=config.random_state,
+        ).fit_predict(graph=fused_graph)
+    elif domain_method == "kmeans":
+        from sklearn.cluster import KMeans
+        recovered_T = recovered.T  # (n_spots, n_genes)
+        km = KMeans(n_clusters=n_domains, random_state=config.random_state, n_init=10)
+        labels = km.fit_predict(np.nan_to_num(recovered_T))
+    elif domain_method == "leiden":
+        try:
+            import scanpy as sc
+            import anndata as ad
+            adata = ad.AnnData(X=np.nan_to_num(recovered.T))
+            adata.obsp['connectivities'] = fused_graph
+            sc.tl.leiden(adata, adjacency=fused_graph, resolution=1.0,
+                          random_state=config.random_state)
+            labels = adata.obs['leiden'].astype(int).values
+        except ImportError:
+            notes.append("Leiden requires scanpy — falling back to kmeans")
+            from sklearn.cluster import KMeans
+            km = KMeans(n_clusters=n_domains, random_state=config.random_state, n_init=10)
+            labels = km.fit_predict(np.nan_to_num(recovered.T))
+    else:
+        raise ValueError(f"Unknown domain_method: {domain_method}. Use 'spectral', 'kmeans', or 'leiden'")
 
     metadata = {
         "mode": "highres_bioml",

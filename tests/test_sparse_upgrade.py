@@ -134,3 +134,22 @@ class TestBatchedRidgeSolve:
         assert factorizer.gene_factors_.shape == (n_genes, 8)
         assert factorizer.spot_factors_.shape == (n_spots, 8)
         assert np.isfinite(factorizer.result_.imputed).all()
+
+
+class TestDomainMethodFlexibility:
+    """Task 3: domain recovery must allow kmeans/leiden, not just spectral."""
+
+    def test_kmeans_domain_method_accepted(self):
+        from spagapa.bioml.highres import highres_bioml_recover, HighResBioMLConfig
+        rng = np.random.default_rng(42)
+        observed = rng.random((20, 200))
+        observed[observed < 0.5] = np.nan
+        coords = rng.random((200, 2)) * 100
+        config = HighResBioMLConfig(domain_method="kmeans")
+        result = highres_bioml_recover(
+            observed=observed, coords=coords, expression_embedding=None,
+            sparse_gp=None, uncertainty=None, parent_index=None,
+            n_domains=5, config=config,
+        )
+        assert result.labels.shape == (200,)
+        assert len(np.unique(result.labels)) <= 5
