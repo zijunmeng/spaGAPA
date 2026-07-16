@@ -11,6 +11,30 @@ import numpy as np
 from scipy import sparse
 from scipy.sparse.linalg import factorized
 
+# Threshold on the number of spots (columns of the APA matrix) above which the
+# SVD initialization switches from dense to randomized. Dense SVD on a matrix
+# like 8659 x 42438 OOMs; randomized SVD only materializes ``rank`` components.
+_SVD_RANDOMIZED_SPOT_THRESHOLD = 1000
+
+
+def _randomized_svd_init(
+    matrix: np.ndarray, n_components: int, n_iter: int, random_state: int
+) -> np.ndarray:
+    """Randomized SVD top components, transposed to (n_samples, n_components).
+
+    Imported lazily so the factorizer stays importable on environments without
+    scikit-learn.
+    """
+    from sklearn.utils.extmath import randomized_svd
+
+    _, _, vt = randomized_svd(
+        matrix,
+        n_components=n_components,
+        n_iter=n_iter,
+        random_state=random_state,
+    )
+    return vt[:n_components].T
+
 
 @dataclass
 class FactorizationResult:
@@ -88,8 +112,20 @@ class GraphRegularizedAPAFactorizer:
         rng = np.random.default_rng(self.random_state)
         centered = filled - filled.mean(axis=1, keepdims=True)
         try:
-            _, _, vt = np.linalg.svd(centered, full_matrices=False)
-            z = vt[: self.rank, :].T
+            # Dense SVD OOMs on wide matrices (e.g. 8659 x 42438). For large
+            # spot counts fall back to randomized SVD which only materializes
+            # ``rank`` components. Small matrices keep the dense path: it is
+            # exact and faster than the randomized estimator.
+            if centered.shape[1] > _SVD_RANDOMIZED_SPOT_THRESHOLD:
+                z = _randomized_svd_init(
+                    centered,
+                    n_components=self.rank,
+                    n_iter=5,
+                    random_state=self.random_state,
+                )
+            else:
+                _, _, vt = np.linalg.svd(centered, full_matrices=False)
+                z = vt[: self.rank, :].T
             if z.shape[1] < self.rank:
                 pad = rng.normal(scale=0.01, size=(z.shape[0], self.rank - z.shape[1]))
                 z = np.concatenate([z, pad], axis=1)
