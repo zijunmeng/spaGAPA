@@ -1,0 +1,29 @@
+[
+  {
+    "n_genes": 8659,
+    "n_spots": 12344,
+    "rank": 8,
+    "runtime_s": 41.61,
+    "peak_mem_gb": 6.27,
+    "completed": true,
+    "recon_error": 0.028491
+  },
+  {
+    "n_genes": 8659,
+    "n_spots": 42438,
+    "rank": 8,
+    "runtime_s": 151.31,
+    "peak_mem_gb": 20.86,
+    "completed": true,
+    "recon_error": 0.028624
+  },
+  {
+    "n_genes": 8659,
+    "n_spots": 100000,
+    "rank": 8,
+    "runtime_s": 251.26,
+    "peak_mem_gb": 48.73,
+    "completed": true,
+    "recon_error": 0.028673
+  }
+]
