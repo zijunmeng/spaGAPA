@@ -153,3 +153,81 @@ class TestDomainMethodFlexibility:
         )
         assert result.labels.shape == (200,)
         assert len(np.unique(result.labels)) <= 5
+
+
+class TestSparseGPAutoEnable:
+    """Task 4: highres_accuracy must auto-enable sparse GP with spot-scaled
+    inducing points, without requiring the user to set use_sparse_gp."""
+
+    def _build_pipeline_with_dataset(self, n_genes, n_spots, preset, seed=0):
+        """Wire a SpaGAPA pipeline to a synthetic APADataset (no I/O)."""
+        import anndata as ad
+        from spagapa.core import APADataset
+        from spagapa import SpaGAPA
+
+        rng = np.random.default_rng(seed)
+        X = rng.random((n_spots, n_genes))
+        coords = rng.random((n_spots, 2)) * 100.0
+        adata = ad.AnnData(X=X)
+        adata.obsm["spatial"] = coords
+        ds = APADataset(adata=adata)
+
+        pipe = SpaGAPA(analysis_preset=preset, verbose=False)
+        pipe.dataset_ = ds
+        return pipe, ds
+
+    def test_highres_accuracy_enables_sparse_gp(self):
+        """The pipeline must auto-enable sparse GP for highres_accuracy."""
+        pipe, ds = self._build_pipeline_with_dataset(
+            n_genes=8659, n_spots=42000, preset="highres_accuracy"
+        )
+        options = pipe._resolve_run_options(impute=True, use_bioml=None)
+        assert options.get("use_sparse_gp") is True, (
+            "highres_accuracy must auto-enable sparse GP"
+        )
+
+    def test_highres_accuracy_scales_inducing_points(self):
+        """Inducing points must scale with n_spots: min(500, max(100, n//100))."""
+        pipe, ds = self._build_pipeline_with_dataset(
+            n_genes=8659, n_spots=42000, preset="highres_accuracy"
+        )
+        options = pipe._resolve_run_options(impute=True, use_bioml=None)
+        expected = min(500, max(100, ds.n_spots // 100))  # 42000 // 100 = 420
+        assert options["sparse_gp"]["n_inducing"] == expected, (
+            f"n_inducing={options['sparse_gp']['n_inducing']}, "
+            f"expected {expected} for {ds.n_spots} spots"
+        )
+
+    def test_highres_accuracy_inducing_clamped_to_500(self):
+        """Very large spot counts must clamp n_inducing at 500."""
+        # 200000 // 100 = 2000 -> clamped to 500
+        pipe, ds = self._build_pipeline_with_dataset(
+            n_genes=100, n_spots=200000, preset="highres_accuracy"
+        )
+        options = pipe._resolve_run_options(impute=True, use_bioml=None)
+        assert options["sparse_gp"]["n_inducing"] == 500
+
+    def test_highres_accuracy_inducing_floored_to_100(self):
+        """Small spot counts must floor n_inducing at 100."""
+        # 500 // 100 = 5 -> floored to 100
+        pipe, ds = self._build_pipeline_with_dataset(
+            n_genes=20, n_spots=500, preset="highres_accuracy"
+        )
+        options = pipe._resolve_run_options(impute=True, use_bioml=None)
+        assert options["sparse_gp"]["n_inducing"] == 100
+
+    def test_standard_preset_keeps_sparse_gp_off(self):
+        """standard must stay on exact GP (use_sparse_gp=False)."""
+        pipe, ds = self._build_pipeline_with_dataset(
+            n_genes=50, n_spots=200, preset="standard"
+        )
+        options = pipe._resolve_run_options(impute=True, use_bioml=None)
+        assert options.get("use_sparse_gp") is False
+
+    def test_highres_fast_keeps_sparse_gp_off(self):
+        """highres_fast skips imputation, so sparse GP stays off."""
+        pipe, ds = self._build_pipeline_with_dataset(
+            n_genes=50, n_spots=5000, preset="highres_fast"
+        )
+        options = pipe._resolve_run_options(impute=True, use_bioml=None)
+        assert options.get("use_sparse_gp") is False

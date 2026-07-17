@@ -62,10 +62,12 @@ class SpaGAPA:
         Spatial neighbors for graph construction.
     kernel_type : str, default='matern'
         GP kernel: 'rbf', 'matern', or 'auto'.
-    gp_alpha : float, default=1e-10
+        gp_alpha : float, default=1e-10
         Exact GP noise/regularization parameter.
     gp_n_restarts_optimizer : int, default=1
         Number of GP hyperparameter optimizer restarts.
+    gp_n_jobs : int, default=1
+        Number of CPU workers for batch GP fitting.
     use_sparse_gp : bool, default=False
         Use sparse GP approximation for large datasets.
     n_inducing : int, default=100
@@ -96,6 +98,7 @@ class SpaGAPA:
         kernel_type: str = 'matern',
         gp_alpha: float = 1e-10,
         gp_n_restarts_optimizer: int = 1,
+        gp_n_jobs: int = 1,
         use_sparse_gp: bool = False,
         n_inducing: int = 100,
         sparse_gp_inducing_method: str = 'kmeans',
@@ -114,6 +117,7 @@ class SpaGAPA:
         bioml_max_iter: int = 20,
         bioml_n_neighbors: int = 15,
         bioml_blend: float = 0.1,
+        bioml_domains_only: bool = False,
         bioml_domain_method: str = 'spectral',
         bioml_spatial_weight: float = 0.4,
         bioml_expression_weight: float = 0.4,
@@ -135,6 +139,7 @@ class SpaGAPA:
         self.kernel_type = kernel_type
         self.gp_alpha = float(gp_alpha)
         self.gp_n_restarts_optimizer = int(gp_n_restarts_optimizer)
+        self.gp_n_jobs = int(gp_n_jobs)
         self.use_sparse_gp = use_sparse_gp
         self.n_inducing = n_inducing
         self.sparse_gp_inducing_method = sparse_gp_inducing_method
@@ -156,6 +161,7 @@ class SpaGAPA:
         self.bioml_max_iter = int(bioml_max_iter)
         self.bioml_n_neighbors = int(bioml_n_neighbors)
         self.bioml_blend = float(bioml_blend)
+        self.bioml_domains_only = bool(bioml_domains_only)
         self.bioml_domain_method = bioml_domain_method
         self.bioml_spatial_weight = float(bioml_spatial_weight)
         self.bioml_expression_weight = float(bioml_expression_weight)
@@ -247,14 +253,29 @@ class SpaGAPA:
         return params
 
     def _active_sparse_gp_defaults(self, resolved_preset: str) -> Dict:
-        """Resolve run-local sparse-GP defaults without mutating the estimator."""
+        """Resolve run-local sparse-GP defaults without mutating the estimator.
+
+        For ``highres_accuracy`` the number of inducing points is scaled with
+        the spot count of the loaded dataset::
+
+            n_inducing = min(500, max(100, n_spots // 100))
+
+        so the sparse approximation stays well-conditioned across the full
+        range of high-resolution tissue sizes (sub-slide to whole-slide),
+        while always remaining within the [100, 500] budget supported by the
+        ``SparseGPImputer``. For ``standard`` / ``highres_fast`` the sparse GP
+        is not used, so the user-supplied ``self.n_inducing`` is preserved.
+        """
         params = {
+            'n_inducing': int(self.n_inducing),
             'inducing_method': self.sparse_gp_inducing_method,
             'length_scale': self.sparse_gp_length_scale,
             'length_scale_multiplier': self.sparse_gp_length_scale_multiplier,
             'noise_level': self.sparse_gp_noise_level,
         }
         if resolved_preset == 'highres_accuracy':
+            n_spots = int(self.dataset_.n_spots) if self.dataset_ is not None else 0
+            params['n_inducing'] = min(500, max(100, n_spots // 100))
             if self.sparse_gp_length_scale == 1.0:
                 params['length_scale'] = 'auto'
             if abs(self.sparse_gp_noise_level - 0.1) < 1e-12:
@@ -297,7 +318,7 @@ class SpaGAPA:
             'impute': bool(impute_this_run),
             'use_sparse_gp': bool(use_sparse_gp_this_run),
             'sparse_gp': {
-                'n_inducing': int(self.n_inducing),
+                'n_inducing': int(self._active_sparse_gp_params['n_inducing']),
                 'inducing_method': self._active_sparse_gp_params['inducing_method'],
                 'length_scale': self._active_sparse_gp_params['length_scale'],
                 'length_scale_multiplier': self._active_sparse_gp_params['length_scale_multiplier'],
@@ -478,25 +499,28 @@ class SpaGAPA:
             uncertainty=uncertainty,
         )
 
-        factorizer = GraphRegularizedAPAFactorizer(
-            rank=self.bioml_rank,
-            lambda_graph=self.bioml_lambda_graph,
-            lambda_l2=self.bioml_lambda_l2,
-            max_iter=self.bioml_max_iter,
-            random_state=42,
-            preserve_observed=True,
-        )
-        bioml_imputed = factorizer.fit_transform(
-            self.dataset_.raw_counts,
-            graph_laplacian=graph.laplacian(),
-            mask=mask,
-            confidence=confidence,
-        )
+        factorizer = None
+        blend = 0.0 if self.bioml_domains_only else float(np.clip(active_params['blend'], 0.0, 1.0))
+        refined = self._clip_apa_values(work)
 
-        blend = float(np.clip(active_params['blend'], 0.0, 1.0))
-        refined = (1.0 - blend) * work + blend * bioml_imputed
-        refined[mask] = self.dataset_.raw_counts[mask]
-        refined = self._clip_apa_values(refined)
+        if not self.bioml_domains_only:
+            factorizer = GraphRegularizedAPAFactorizer(
+                rank=self.bioml_rank,
+                lambda_graph=self.bioml_lambda_graph,
+                lambda_l2=self.bioml_lambda_l2,
+                max_iter=self.bioml_max_iter,
+                random_state=42,
+                preserve_observed=True,
+            )
+            bioml_imputed = factorizer.fit_transform(
+                self.dataset_.raw_counts,
+                graph_laplacian=graph.laplacian(),
+                mask=mask,
+                confidence=confidence,
+            )
+            refined = (1.0 - blend) * work + blend * bioml_imputed
+            refined[mask] = self.dataset_.raw_counts[mask]
+            refined = self._clip_apa_values(refined)
 
         if self.bioml_domain_method == 'spectral':
             labels = BioMLDomainDetector(
@@ -505,16 +529,24 @@ class SpaGAPA:
                 random_state=42,
             ).fit_predict(graph=graph.fused)
         elif self.bioml_domain_method == 'kmeans':
+            if factorizer is not None:
+                spot_factors = factorizer.spot_factors_
+            else:
+                feature_blocks = [coords, refined.T]
+                if expression_embedding is not None:
+                    feature_blocks.insert(1, expression_embedding)
+                spot_factors = np.column_stack(feature_blocks)
             labels = BioMLDomainDetector(
                 method='kmeans',
                 n_domains=n_domains,
                 random_state=42,
-            ).fit_predict(spot_factors=factorizer.spot_factors_)
+            ).fit_predict(spot_factors=spot_factors)
         else:
             raise ValueError("bioml_domain_method must be 'spectral' or 'kmeans'")
 
         metadata = {
             'enabled': True,
+            'mode': 'domains_only' if self.bioml_domains_only else 'value_refinement',
             'domain_method': self.bioml_domain_method,
             'n_domains': int(n_domains),
             'rank': self.bioml_rank,
@@ -530,25 +562,28 @@ class SpaGAPA:
             },
             'graph_weights_effective': graph.weights,
             'has_expression_view': expression_embedding is not None,
-            'factorization_n_iter': int(factorizer.result_.n_iter),
-            'factorization_reconstruction_error': float(factorizer.result_.reconstruction_error),
+            'factorization_n_iter': None if factorizer is None else int(factorizer.result_.n_iter),
+            'factorization_reconstruction_error': (
+                None if factorizer is None else float(factorizer.result_.reconstruction_error)
+            ),
         }
 
         self.dataset_.set_bioml_results(
             imputed=refined,
-            spot_factors=factorizer.spot_factors_,
-            gene_factors=factorizer.gene_factors_,
+            spot_factors=None if factorizer is None else factorizer.spot_factors_,
+            gene_factors=None if factorizer is None else factorizer.gene_factors_,
             metadata=metadata,
         )
 
+        method_name = 'spagapa_gp_bioml_domains' if self.bioml_domains_only else 'spagapa_bioml'
         return labels, {
             'labels': labels,
             'n_domains': n_domains,
-            'method': 'spagapa_bioml',
+            'method': method_name,
             'domain_method': self.bioml_domain_method,
             'imputed_values': refined,
-            'spot_factors': factorizer.spot_factors_,
-            'gene_factors': factorizer.gene_factors_,
+            'spot_factors': None if factorizer is None else factorizer.spot_factors_,
+            'gene_factors': None if factorizer is None else factorizer.gene_factors_,
             'metadata': metadata,
         }
 
@@ -826,6 +861,7 @@ class SpaGAPA:
 
             if use_sparse_gp_this_run:
                 sparse_params = self._active_sparse_gp_params or {
+                    'n_inducing': int(self.n_inducing),
                     'inducing_method': self.sparse_gp_inducing_method,
                     'length_scale': self.sparse_gp_length_scale,
                     'length_scale_multiplier': self.sparse_gp_length_scale_multiplier,
@@ -837,7 +873,7 @@ class SpaGAPA:
                     multiplier=sparse_params['length_scale_multiplier'],
                 )
                 base_imputer = SparseGPImputer(
-                    n_inducing=self.n_inducing,
+                    n_inducing=int(sparse_params['n_inducing']),
                     inducing_method=sparse_params['inducing_method'],
                     length_scale=length_scale,
                     noise_level=sparse_params['noise_level'],
@@ -855,7 +891,7 @@ class SpaGAPA:
                 coords,
                 apa_matrix_values,
                 mask=training_mask,
-                n_jobs=1,
+                n_jobs=self.gp_n_jobs,
                 verbose=self.verbose,
             )
             imputed, uncertainty = self.imputer_.impute(return_uncertainty=True)
