@@ -154,11 +154,13 @@ class SparseGPImputer:
         self,
         coordinates: np.ndarray,
         values: np.ndarray,
-        mask: Optional[np.ndarray] = None
+        mask: Optional[np.ndarray] = None,
+        inducing_points: Optional[np.ndarray] = None,
+        K_mm_inv: Optional[np.ndarray] = None,
     ):
         """
         Fit sparse GP model.
-        
+
         Parameters
         ----------
         coordinates : np.ndarray, shape (n_spots, 2)
@@ -167,7 +169,17 @@ class SparseGPImputer:
             Observed values
         mask : np.ndarray, optional
             Boolean mask for training data
-        
+        inducing_points : np.ndarray, optional, shape (m, 2)
+            Precomputed inducing points. When supplied, the (expensive)
+            KMeans selection is skipped. Inducing points depend only on
+            coordinates, so a single set computed across all spots can be
+            reused for every gene in a batch.
+        K_mm_inv : np.ndarray, optional, shape (m, m)
+            Precomputed inverse of the inducing-point kernel ``K_mm``.
+            Must be consistent with ``inducing_points``. Skipping the
+            per-gene ``np.linalg.inv`` is the second half of the reuse
+            optimization.
+
         Returns
         -------
         self
@@ -175,29 +187,37 @@ class SparseGPImputer:
         # Filter training data
         if mask is None:
             mask = values > 0
-        
+
         train_coords = coordinates[mask]
         train_values = values[mask]
-        
+
         if len(train_values) == 0:
             raise ValueError("No training data available")
-        
-        # Select inducing points
-        self.inducing_points_ = self._select_inducing_points(train_coords)
+
+        # Select inducing points (or reuse a shared precomputed set)
+        if inducing_points is not None:
+            self.inducing_points_ = inducing_points
+        else:
+            self.inducing_points_ = self._select_inducing_points(train_coords)
         m = len(self.inducing_points_)
         n = len(train_coords)
-        
-        # Compute kernel matrices
-        # K_mm: kernel between inducing points (m x m)
-        K_mm = self._rbf_kernel(self.inducing_points_, self.inducing_points_)
-        K_mm += 1e-6 * np.eye(m)  # Jitter for numerical stability
-        
+
         # K_nm: kernel between training points and inducing points (n x m)
         K_nm = self._rbf_kernel(train_coords, self.inducing_points_)
-        
-        # Compute Q_nn = K_nm @ K_mm^{-1} @ K_mn (approximate kernel)
-        K_mm_inv = np.linalg.inv(K_mm)
-        self._K_mm_inv = K_mm_inv
+
+        # Compute K_mm and K_mm^{-1} (or reuse a shared precomputed inverse).
+        # K_mm is still needed below for Sigma = K_mm + K_mn @ Lambda^{-1} @ K_nm.
+        if K_mm_inv is not None:
+            self._K_mm_inv = K_mm_inv
+            K_mm = self._rbf_kernel(self.inducing_points_, self.inducing_points_)
+            K_mm += 1e-6 * np.eye(m)  # Jitter, consistent with the precompute path
+        else:
+            K_mm = self._rbf_kernel(self.inducing_points_, self.inducing_points_)
+            K_mm += 1e-6 * np.eye(m)  # Jitter for numerical stability
+            self._K_mm_inv = np.linalg.inv(K_mm)
+
+        # Local alias: the math below uses K_mm_inv in two places.
+        K_mm_inv = self._K_mm_inv
         
         # Compute Lambda (diagonal correction term)
         # Lambda = diag(K_nn - Q_nn) + noise
@@ -396,6 +416,23 @@ class SparseGPImputerBatch:
 
     def _fit_batch(self):
         n_genes = self.values.shape[0]
+
+        # Precompute inducing points ONCE on all coordinates (not the
+        # gene-specific training mask). Inducing points depend only on the
+        # spatial layout, which is identical for every gene, so running
+        # KMeans(42k points, ~424 clusters, n_init=10) per gene is pure waste.
+        # Reusing the same set + precomputed K_mm^{-1} turns an O(n_genes)
+        # KMeans cost into O(1) and is the bulk of the speedup.
+        base = self.base_imputer
+        shared_inducing = base._select_inducing_points(self.coordinates)
+        K_mm = base._rbf_kernel(shared_inducing, shared_inducing)
+        K_mm += 1e-6 * np.eye(len(shared_inducing))
+        shared_K_mm_inv = np.linalg.inv(K_mm)
+        logger.info(
+            f"Precomputed {len(shared_inducing)} shared inducing points "
+            f"for {n_genes} genes"
+        )
+
         for gene_idx in range(n_genes):
             if self.verbose and gene_idx > 0 and gene_idx % 100 == 0:
                 logger.info(f"Fitted {gene_idx}/{n_genes} sparse GP models")
@@ -404,7 +441,11 @@ class SparseGPImputerBatch:
             gene_values = self.values[gene_idx, :]
             gene_mask = self.mask[gene_idx, :] if self.mask is not None else None
             try:
-                imputer.fit(self.coordinates, gene_values, gene_mask)
+                imputer.fit(
+                    self.coordinates, gene_values, gene_mask,
+                    inducing_points=shared_inducing,
+                    K_mm_inv=shared_K_mm_inv,
+                )
                 self.imputers_.append(imputer)
             except Exception as exc:
                 logger.warning(f"Failed to fit sparse GP for gene {gene_idx}: {exc}")

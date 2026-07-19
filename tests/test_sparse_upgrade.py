@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from spagapa.bioml import GraphRegularizedAPAFactorizer
+from spagapa.imputation.sparse_gp import SparseGPImputer
 
 
 def _make_low_rank_apa(
@@ -231,3 +232,41 @@ class TestSparseGPAutoEnable:
         )
         options = pipe._resolve_run_options(impute=True, use_bioml=None)
         assert options.get("use_sparse_gp") is False
+
+
+class TestInducingPointsReuse:
+    """Inducing points depend on coordinates, not gene values, so the batch
+    path must select them once and reuse across all genes."""
+
+    def test_batch_works(self):
+        """Batch with precomputed inducing produces valid output."""
+        rng = np.random.default_rng(42)
+        coords = rng.random((200, 2)) * 100
+        values = rng.random((20, 200))
+        values[values < 0.5] = 0
+        base = SparseGPImputer(n_inducing=50, inducing_method='kmeans',
+                               length_scale=20.0, noise_level=0.1)
+        batch = base.fit_batch(coords, values, verbose=False)
+        pred, unc = batch.impute()
+        assert pred.shape == (20, 200)
+        assert np.isfinite(pred).all()
+
+    def test_batch_speed(self):
+        """Batch on 100 genes x 5000 spots completes in <30s.
+
+        The redundant KMeans (10 init, 100 clusters, 5000 points) run 100x
+        in the old path would dominate runtime; precomputing once collapses
+        it to a single KMeans call.
+        """
+        start = time.perf_counter()
+        rng = np.random.default_rng(42)
+        coords = rng.random((5000, 2)) * 200
+        values = rng.random((100, 5000))
+        values[values < 0.7] = 0
+        base = SparseGPImputer(n_inducing=100, inducing_method='kmeans',
+                               length_scale=50.0, noise_level=0.1)
+        batch = base.fit_batch(coords, values, verbose=False)
+        elapsed = time.perf_counter() - start
+        assert elapsed < 30, f"Batch took {elapsed:.1f}s -- too slow"
+        pred, unc = batch.impute()
+        assert pred.shape == (100, 5000)
