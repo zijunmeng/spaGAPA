@@ -227,7 +227,7 @@ class SparseGPImputer:
         
         # Compute Sigma = K_mm + K_mn @ Lambda^{-1} @ K_nm
         K_mn = K_nm.T
-        Sigma = K_mm + K_mn @ np.diag(1.0 / Lambda) @ K_nm
+        Sigma = K_mm + (K_mn * (1.0 / Lambda)[None, :]) @ K_nm
         
         # Cholesky decomposition for efficient solving
         L = cho_factor(Sigma, lower=True)
