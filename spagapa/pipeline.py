@@ -507,6 +507,13 @@ class SpaGAPA:
         refined = self._clip_apa_values(work)
 
         if not self.bioml_domains_only:
+            # Auto-enable chunked factorization for large spot counts. The
+            # gene/spot update einsum otherwise materializes a dense
+            # (n_genes x n_spots) intermediate which is the dominant memory
+            # cost above ~20k spots (e.g. 49GB at 100k spots). Chunking to
+            # 2000 genes at a time caps it under 20GB with no math change.
+            n_spots = int(self.dataset_.n_spots) if self.dataset_ is not None else 0
+            gene_chunk_size = 2000 if n_spots > 20000 else None
             factorizer = GraphRegularizedAPAFactorizer(
                 rank=self.bioml_rank,
                 lambda_graph=self.bioml_lambda_graph,
@@ -514,6 +521,7 @@ class SpaGAPA:
                 max_iter=self.bioml_max_iter,
                 random_state=42,
                 preserve_observed=True,
+                gene_chunk_size=gene_chunk_size,
             )
             bioml_imputed = factorizer.fit_transform(
                 self.dataset_.raw_counts,

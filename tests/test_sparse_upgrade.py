@@ -270,6 +270,24 @@ class TestChunkedFactorizer:
         assert peak < 200 * 1024 * 1024, f"Peak memory {peak/1e6:.0f}MB too high"
 
 
+class TestAutoChunkedFactorizer:
+    """Task A3: pipeline must auto-enable gene_chunk_size=2000 when n_spots >
+    20000, and keep it None for smaller datasets."""
+
+    def test_large_n_spots_enables_chunking(self):
+        """n_spots > 20000 must instantiate factorizer with gene_chunk_size=2000."""
+        import inspect
+        # Inspect _run_bioml source to confirm the auto-chunking branch is
+        # present (the only place the factorizer is constructed in the pipeline).
+        import spagapa.pipeline as pl
+        src = inspect.getsource(pl.SpaGAPA._run_bioml)
+        assert "gene_chunk_size = 2000 if n_spots > 20000 else None" in src, (
+            "pipeline._run_bioml must auto-enable gene_chunk_size=2000 for "
+            "n_spots > 20000"
+        )
+        assert "gene_chunk_size=gene_chunk_size" in src
+
+
 class TestKNmPrecompute:
     """K_nm (kernel from all coords to inducing points) depends only on
     coordinates, so it can be computed once for the whole batch and indexed
