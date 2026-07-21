@@ -270,6 +270,85 @@ class TestChunkedFactorizer:
         assert peak < 200 * 1024 * 1024, f"Peak memory {peak/1e6:.0f}MB too high"
 
 
+class TestKNmPrecompute:
+    """K_nm (kernel from all coords to inducing points) depends only on
+    coordinates, so it can be computed once for the whole batch and indexed
+    per gene's mask."""
+
+    def test_precomputed_knm_matches(self):
+        """SparseGPImputer.fit() with precomputed K_nm_full gives same result."""
+        import numpy as np
+        from spagapa.imputation.sparse_gp import SparseGPImputer
+        rng = np.random.default_rng(42)
+        coords = rng.random((200, 2)) * 100
+        values = rng.random(200)
+        values[values < 0.5] = 0
+        # Without precompute
+        imp1 = SparseGPImputer(n_inducing=50, length_scale=20.0, noise_level=0.1)
+        imp1.fit(coords, values)
+        # Precompute K_nm_full (full coord set -> inducing points)
+        inducing = imp1.inducing_points_
+        from scipy.spatial import distance_matrix
+        dists = distance_matrix(coords, inducing)
+        k_nm_full = np.exp(-0.5 * (dists / 20.0) ** 2)
+        # With precompute
+        imp2 = SparseGPImputer(n_inducing=50, length_scale=20.0, noise_level=0.1)
+        imp2.fit(coords, values, k_nm_full=k_nm_full)
+        np.testing.assert_allclose(imp1.alpha_, imp2.alpha_, atol=1e-10)
+
+    def test_precomputed_knm_with_mask_matches(self):
+        """Precomputed K_nm_full with a per-gene mask indexes correctly."""
+        import numpy as np
+        from spagapa.imputation.sparse_gp import SparseGPImputer
+        rng = np.random.default_rng(7)
+        coords = rng.random((300, 2)) * 100
+        values = rng.random(300)
+        mask = values > 0.3  # arbitrary mask != (values > 0)
+        # Without precompute, using mask
+        imp1 = SparseGPImputer(n_inducing=40, length_scale=25.0, noise_level=0.1)
+        imp1.fit(coords, values, mask=mask)
+        # Precompute K_nm_full over ALL coords
+        inducing = imp1.inducing_points_
+        from scipy.spatial import distance_matrix
+        dists = distance_matrix(coords, inducing)
+        k_nm_full = np.exp(-0.5 * (dists / 25.0) ** 2)
+        imp2 = SparseGPImputer(n_inducing=40, length_scale=25.0, noise_level=0.1)
+        imp2.fit(coords, values, mask=mask, k_nm_full=k_nm_full)
+        np.testing.assert_allclose(imp1.alpha_, imp2.alpha_, atol=1e-10)
+
+    def test_batch_uses_precomputed_knm(self):
+        """SparseGPImputerBatch must precompute K_nm_full once and reuse it,
+        producing the same output as the per-gene kernel path."""
+        import numpy as np
+        from spagapa.imputation.sparse_gp import SparseGPImputer
+        rng = np.random.default_rng(11)
+        coords = rng.random((500, 2)) * 100
+        values = rng.random((15, 500))
+        values[values < 0.5] = 0
+        base = SparseGPImputer(n_inducing=50, length_scale=20.0, noise_level=0.1)
+        batch = base.fit_batch(coords, values, verbose=False)
+        pred, unc = batch.impute()
+        # Sanity: result is finite and well-shaped.
+        assert pred.shape == (15, 500)
+        assert np.isfinite(pred).all()
+        # The first imputer's fit must have stored the precomputed full-kernel
+        # path: assert that per-gene alpha matches a fresh fit with k_nm_full
+        # passed explicitly (and the same shared inducing points).
+        inducing = batch.imputers_[0].inducing_points_
+        from scipy.spatial import distance_matrix
+        dists = distance_matrix(coords, inducing)
+        k_nm_full = np.exp(-0.5 * (dists / 20.0) ** 2)
+        imp_ref = SparseGPImputer(n_inducing=50, length_scale=20.0, noise_level=0.1)
+        imp_ref.fit(
+            coords, values[0],
+            inducing_points=inducing,
+            k_nm_full=k_nm_full,
+        )
+        np.testing.assert_allclose(
+            batch.imputers_[0].alpha_, imp_ref.alpha_, atol=1e-10
+        )
+
+
 class TestInducingPointsReuse:
     """Inducing points depend on coordinates, not gene values, so the batch
     path must select them once and reuse across all genes."""

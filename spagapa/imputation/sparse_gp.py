@@ -157,6 +157,7 @@ class SparseGPImputer:
         mask: Optional[np.ndarray] = None,
         inducing_points: Optional[np.ndarray] = None,
         K_mm_inv: Optional[np.ndarray] = None,
+        k_nm_full: Optional[np.ndarray] = None,
     ):
         """
         Fit sparse GP model.
@@ -179,6 +180,13 @@ class SparseGPImputer:
             Must be consistent with ``inducing_points``. Skipping the
             per-gene ``np.linalg.inv`` is the second half of the reuse
             optimization.
+        k_nm_full : np.ndarray, optional, shape (n_spots, m)
+            Precomputed kernel between ALL coordinates (not just the
+            mask-filtered training subset) and ``inducing_points``. When
+            provided, this gene's ``K_nm`` is obtained by indexing
+            ``k_nm_full`` with the training mask, skipping the per-gene
+            ``distance_matrix`` evaluation. Must be consistent with
+            ``inducing_points`` and the supplied ``coordinates``.
 
         Returns
         -------
@@ -187,6 +195,7 @@ class SparseGPImputer:
         # Filter training data
         if mask is None:
             mask = values > 0
+        mask = np.asarray(mask, dtype=bool)
 
         train_coords = coordinates[mask]
         train_values = values[mask]
@@ -202,8 +211,16 @@ class SparseGPImputer:
         m = len(self.inducing_points_)
         n = len(train_coords)
 
-        # K_nm: kernel between training points and inducing points (n x m)
-        K_nm = self._rbf_kernel(train_coords, self.inducing_points_)
+        # K_nm: kernel between training points and inducing points (n x m).
+        # When the caller supplies a precomputed kernel over ALL coordinates,
+        # index it by this gene's training mask instead of recomputing the
+        # distance matrix -- the kernel depends only on coordinates, which
+        # are shared across the whole batch.
+        if k_nm_full is not None:
+            train_idx = np.flatnonzero(mask)
+            K_nm = np.asarray(k_nm_full, dtype=float)[train_idx]
+        else:
+            K_nm = self._rbf_kernel(train_coords, self.inducing_points_)
 
         # Compute K_mm and K_mm^{-1} (or reuse a shared precomputed inverse).
         # K_mm is still needed below for Sigma = K_mm + K_mn @ Lambda^{-1} @ K_nm.
@@ -428,9 +445,14 @@ class SparseGPImputerBatch:
         K_mm = base._rbf_kernel(shared_inducing, shared_inducing)
         K_mm += 1e-6 * np.eye(len(shared_inducing))
         shared_K_mm_inv = np.linalg.inv(K_mm)
+        # Precompute the kernel from ALL coordinates to the shared inducing
+        # points once. K_nm depends only on coordinates (not gene values),
+        # so each gene's training kernel is just ``k_nm_full[mask]``. This
+        # eliminates one O(n*m) distance_matrix evaluation per gene.
+        k_nm_full = base._rbf_kernel(self.coordinates, shared_inducing)
         logger.info(
             f"Precomputed {len(shared_inducing)} shared inducing points "
-            f"for {n_genes} genes"
+            f"and K_nm ({k_nm_full.shape}) for {n_genes} genes"
         )
 
         for gene_idx in range(n_genes):
@@ -445,6 +467,7 @@ class SparseGPImputerBatch:
                     self.coordinates, gene_values, gene_mask,
                     inducing_points=shared_inducing,
                     K_mm_inv=shared_K_mm_inv,
+                    k_nm_full=k_nm_full,
                 )
                 self.imputers_.append(imputer)
             except Exception as exc:
