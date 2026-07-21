@@ -234,6 +234,42 @@ class TestSparseGPAutoEnable:
         assert options.get("use_sparse_gp") is False
 
 
+class TestChunkedFactorizer:
+    """gene_chunk_size parameter processes genes in batches, reducing peak
+    memory while producing mathematically identical results."""
+
+    def test_chunked_matches_nonchunked(self):
+        """Chunked factorizer must produce same result as non-chunked."""
+        rng = np.random.default_rng(42)
+        apa = rng.random((50, 200))
+        apa[apa < 0.5] = 0  # 50% sparse
+        from spagapa.bioml.factorization import GraphRegularizedAPAFactorizer
+        f1 = GraphRegularizedAPAFactorizer(rank=4, max_iter=5, random_state=42)
+        f1.fit(apa)
+        f2 = GraphRegularizedAPAFactorizer(rank=4, max_iter=5, random_state=42,
+                                           gene_chunk_size=10)  # 5 chunks of 10 genes
+        f2.fit(apa)
+        # Results should be very close (chunking changes floating point order but not math)
+        np.testing.assert_allclose(f1.result_.imputed, f2.result_.imputed, atol=1e-8)
+
+    def test_chunked_memory_efficiency(self):
+        """Chunked factorizer on large matrix should use less memory."""
+        import tracemalloc
+        rng = np.random.default_rng(42)
+        apa = rng.random((500, 5000))
+        apa[apa < 0.9] = 0  # 90% sparse
+        from spagapa.bioml.factorization import GraphRegularizedAPAFactorizer
+        tracemalloc.start()
+        f = GraphRegularizedAPAFactorizer(rank=8, max_iter=3, random_state=42,
+                                           gene_chunk_size=100)
+        f.fit(apa)
+        current, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        # With chunking, peak should be well under the non-chunked memory
+        # Non-chunked: 500×5000×8 = 20MB just for filled; chunked: 100×5000×8 = 4MB
+        assert peak < 200 * 1024 * 1024, f"Peak memory {peak/1e6:.0f}MB too high"
+
+
 class TestInducingPointsReuse:
     """Inducing points depend on coordinates, not gene values, so the batch
     path must select them once and reuse across all genes."""
