@@ -358,7 +358,10 @@ class SpaGAPA:
         """Return observed-value mask under the declared input semantics."""
         finite = np.isfinite(values)
         if self.input_type == 'apa_index':
-            return finite
+            # APA index matrices encode missing cells as 0.0 (not NaN).
+            # Without the >0 filter, observed_fraction=1.0 and GP uncertainty
+            # is zeroed everywhere. Match qc_metrics.py's values>0 convention.
+            return finite & (values > 0)
         return finite & (values > 0)
 
     def _resolve_sparse_gp_length_scale(
