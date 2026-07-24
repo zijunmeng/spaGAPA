@@ -23,6 +23,11 @@ from .trajectory import (
     build_spatial_trajectory,
     analyse_apa_trajectory,
 )
+from .bias_correction import (
+    quantile_normalize,
+    linear_batch_correction,
+    build_gene_index as build_distal_usage_index,
+)
 
 __all__ = [
     'DomainIdentifier', 'identify_spatial_domains',
@@ -31,4 +36,5 @@ __all__ = [
     'GPTrendDetector', 'detect_svapa_genes_gp',
     'TrajectoryBuilder', 'TrajectoryAnalyzer',
     'build_spatial_trajectory', 'analyse_apa_trajectory',
+    'quantile_normalize', 'linear_batch_correction', 'build_distal_usage_index',
 ]

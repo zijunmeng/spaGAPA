@@ -24,6 +24,11 @@ from .sparse_gp import (
     SparseGPImputerBatch,
     BlockGPImputer
 )
+from .calibration import (
+    ConformalCalibrator,
+    CalibratedInterval,
+    evaluate_coverage,
+)
 
 __all__ = [
     'GPImputer',
@@ -35,5 +40,8 @@ __all__ = [
     'ExpressionGPImputerBatch',
     'SparseGPImputer',
     'SparseGPImputerBatch',
-    'BlockGPImputer'
+    'BlockGPImputer',
+    'ConformalCalibrator',
+    'CalibratedInterval',
+    'evaluate_coverage',
 ]

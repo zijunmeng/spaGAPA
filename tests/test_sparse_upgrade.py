@@ -403,3 +403,121 @@ class TestInducingPointsReuse:
         assert elapsed < 30, f"Batch took {elapsed:.1f}s -- too slow"
         pred, unc = batch.impute()
         assert pred.shape == (100, 5000)
+
+
+class TestConformalCalibration:
+    """P0-1: split-conformal calibration must deliver marginal coverage at the
+    target level on synthetic data, for both global and locally-adaptive modes.
+
+    The sparse GP's raw posterior std is far too conservative (2-sigma
+    coverage ~1.0) and barely correlates with error (~0.008). Split conformal
+    fixes the marginal coverage rigorously by construction; these tests pin
+    that guarantee.
+    """
+
+    @staticmethod
+    def _make_synthetic(n: int, seed: int):
+        """Errors and a GP std that tracks them (corr ~0.7).
+
+        Models the situation we *want* the locally-adaptive mode to exploit:
+        the raw std ranking is informative even if its scale is wrong.
+        """
+        rng = np.random.default_rng(seed)
+        # heteroscedastic true error scale
+        latent = np.abs(rng.normal(0, 1, n))
+        errors = np.abs(rng.normal(0, 1, n)) * (0.3 + 0.7 * latent)
+        # GP std tracks error up to a (deliberately wrong) constant scale
+        gp_std = 3.0 * latent + np.abs(rng.normal(0, 0.2, n))
+        # ground-truth values: pred=0, so truth = +/-error
+        truth = errors * rng.choice([-1, 1], n)
+        return errors, gp_std, truth
+
+    @pytest.mark.parametrize("mode", ["global", "locally_adaptive"])
+    @pytest.mark.parametrize("alpha,target", [(0.20, 0.80), (0.10, 0.90), (0.05, 0.95)])
+    def test_coverage_hits_target(self, mode, alpha, target):
+        """Empirical test coverage must be within +/-3% of the nominal target.
+
+        Split conformal guarantees marginal coverage >= 1-alpha in expectation
+        under exchangeability; with 6000 test points the sampling noise on the
+        coverage estimate is ~ sqrt(0.9*0.1/6000) ~ 0.004, so +/-3% is a
+        comfortable band that still catches a broken implementation.
+        """
+        from spagapa.imputation.calibration import (
+            ConformalCalibrator,
+            evaluate_coverage,
+        )
+
+        errors, gp_std, truth = self._make_synthetic(12000, seed=42)
+        perm = np.random.default_rng(0).permutation(12000)
+        n_cal = 6000
+        cal_idx, test_idx = perm[:n_cal], perm[n_cal:]
+
+        cal = ConformalCalibrator(alpha=alpha, mode=mode)
+        cal.fit(errors[cal_idx],
+                gp_std[cal_idx] if mode == "locally_adaptive" else None)
+        lo, hi = cal.predict(
+            np.zeros(n_cal),  # pred = 0 for everyone
+            gp_std[test_idx] if mode == "locally_adaptive" else None,
+        )
+        cov = evaluate_coverage(lo, hi, truth[test_idx])
+        assert abs(cov - target) <= 0.03, (
+            f"{mode} alpha={alpha}: coverage {cov:.4f} outside "
+            f"[{target-0.03:.3f}, {target+0.03:.3f}]"
+        )
+
+    def test_locally_adaptive_tighter_where_gp_confident(self):
+        """Locally-adaptive intervals must be narrower than global where the
+        GP std is small, and wider where it is large -- otherwise the mode is
+        degenerate (e.g. when raw std is constant)."""
+        from spagapa.imputation.calibration import ConformalCalibrator
+
+        errors, gp_std, _ = self._make_synthetic(4000, seed=1)
+        # Split
+        n_cal = 2000
+        cal = ConformalCalibrator(alpha=0.1, mode="locally_adaptive")
+        cal.fit(errors[:n_cal], gp_std[:n_cal])
+        test_std = gp_std[n_cal:]
+        lo, hi = cal.predict(np.zeros(2000), test_std)
+        half = (hi - lo) / 2.0
+        # Intervals should be monotonically increasing in gp_std
+        order = np.argsort(test_std)
+        half_sorted = half[order]
+        # Spearman-ish check: first quartile half-width < last quartile
+        q = len(half_sorted) // 4
+        assert half_sorted[:q].mean() < half_sorted[-q:].mean(), (
+            "locally-adaptive half-width should scale with GP std"
+        )
+
+    def test_global_requires_no_std(self):
+        """Global mode must not require gp_std in fit() or predict()."""
+        from spagapa.imputation.calibration import ConformalCalibrator
+
+        errors = np.abs(np.random.default_rng(2).normal(0, 1, 1000))
+        cal = ConformalCalibrator(alpha=0.1, mode="global")
+        cal.fit(errors)  # no std
+        lo, hi = cal.predict(np.zeros(500))  # no std
+        assert lo.shape == (500,) and (hi > lo).all()
+
+    def test_locally_adaptive_requires_std(self):
+        """Locally-adaptive mode must raise if std is missing."""
+        from spagapa.imputation.calibration import ConformalCalibrator
+
+        errors = np.abs(np.random.default_rng(3).normal(0, 1, 100))
+        cal = ConformalCalibrator(alpha=0.1, mode="locally_adaptive")
+        with pytest.raises(ValueError):
+            cal.fit(errors)  # missing std
+
+    def test_alpha_validation(self):
+        """alpha must be in (0, 1)."""
+        from spagapa.imputation.calibration import ConformalCalibrator
+        with pytest.raises(ValueError):
+            ConformalCalibrator(alpha=0.0)
+        with pytest.raises(ValueError):
+            ConformalCalibrator(alpha=1.0)
+
+    def test_predict_before_fit_raises(self):
+        """predict() before fit() must raise RuntimeError."""
+        from spagapa.imputation.calibration import ConformalCalibrator
+        cal = ConformalCalibrator(alpha=0.1)
+        with pytest.raises(RuntimeError):
+            cal.predict(np.zeros(10))
