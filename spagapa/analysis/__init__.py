@@ -28,6 +28,11 @@ from .bias_correction import (
     linear_batch_correction,
     build_gene_index as build_distal_usage_index,
 )
+from .svapa import (
+    morans_i,
+    gearys_c,
+    svapa,
+)
 
 __all__ = [
     'DomainIdentifier', 'identify_spatial_domains',
@@ -37,4 +42,6 @@ __all__ = [
     'TrajectoryBuilder', 'TrajectoryAnalyzer',
     'build_spatial_trajectory', 'analyse_apa_trajectory',
     'quantile_normalize', 'linear_batch_correction', 'build_distal_usage_index',
+    # SVAPA (spatially-variable APA, permutation Moran's I)
+    'morans_i', 'gearys_c', 'svapa',
 ]

@@ -525,7 +525,12 @@ class SpaGAPA:
             )
             bioml_imputed = factorizer.fit_transform(
                 self.dataset_.raw_counts,
-                graph_laplacian=graph.laplacian(),
+                # Spatial-kNN Laplacian (not the fused graph): the fused graph's
+                # extra APA/expression-similarity edges make SuperLU factorization
+                # of (I + lambda*L) fill in and hang above ~20k spots. The spatial
+                # kNN graph is the correct smoother and factorizes fast at 100k.
+                # fused graph is still used for Leiden domain detection below.
+                graph_laplacian=graph.spatial_laplacian(),
                 mask=mask,
                 confidence=confidence,
             )

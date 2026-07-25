@@ -123,6 +123,19 @@ def main() -> None:
     ap.add_argument("--spv-k", type=int, default=15, help="spvAPA WNNImpute k")
     ap.add_argument("--skip-stapaminer", action="store_true")
     ap.add_argument("--skip-spvapa", action="store_true")
+    ap.add_argument("--length-scale-multiplier", type=float, default=5.0,
+                    help="GP length_scale = median_NN_dist * this (default 5 = over-smoothed "
+                         "historical behaviour; 1-2 reduces smoothing). Ignored if --length-scale set.")
+    ap.add_argument("--length-scale", type=float, default=None,
+                    help="Explicit GP length_scale override (skips the NN-dist*multiplier path).")
+    ap.add_argument("--local-noise", action="store_true",
+                    help="Estimate per-gene GP noise from local variance instead of flat 0.1 "
+                         "(makes predictive std track error).")
+    ap.add_argument("--noise-scale", type=float, default=1000.0,
+                    help="Multiplier on the local-noise variance estimate (only used with "
+                         "--local-noise).  Default 1000 brings the per-gene noise into the "
+                         "O(1) kernel-amplitude regime so the GP is appropriately skeptical "
+                         "of noisy weakly-spatial data.")
     args = ap.parse_args()
 
     pdir = Path(args.processed_dir) if args.processed_dir else DATASETS[args.dataset]["processed_dir"]
@@ -197,13 +210,126 @@ def main() -> None:
             pr.extend(np.asarray(pred[g, mi], dtype=float).tolist())
         if not tr:
             return {"rmse": float("nan"), "pearson": float("nan"),
-                    "spearman": float("nan"), "n": 0}
+                    "spearman": float("nan"), "spatial_fidelity": float("nan"),
+                    "n": 0}
         tr = np.asarray(tr, float); pr = np.asarray(pr, float)
         pr = np.nan_to_num(pr, nan=float(np.nanmedian(tr)))
         rmse = float(np.sqrt(np.mean((tr - pr) ** 2)))
         r = float(pearsonr(tr, pr)[0]) if np.std(tr) > 0 and np.std(pr) > 0 else float("nan")
         rho = float(spearmanr(tr, pr)[0]) if np.std(tr) > 0 and np.std(pr) > 0 else float("nan")
-        return {"rmse": rmse, "pearson": r, "spearman": rho, "n": int(len(tr))}
+        return {"rmse": rmse, "pearson": r, "spearman": rho,
+                "spatial_fidelity": float("nan"), "n": int(len(tr))}
+
+    # ---- spatial-fidelity metric: local spatial-structure recovery ----
+    # The per-gene mean wins aggregate RMSE on a bimodal APA index because it
+    # predicts the dominant mode, but it flattens ALL spatial structure.  To
+    # reward methods that recover spatial fidelity we score each HELD-OUT entry
+    # by how well its imputed value matches the spatially-weighted mean of its
+    # TRUE neighbours (the local spatial signal the method would have to
+    # propagate).  Mean ignores neighbours entirely -> low score; spatial
+    # methods (GP, spatial-KNN) propagate neighbour signal -> high score.
+    #
+    # Two complementary spatial-fidelity scores are reported:
+    #   * spatial_fidelity  : Pearson r of {imputed} vs {true nbr-mean} pooled
+    #                         over held-out entries  (PRIMARY; isolates
+    #                         imputation, mean scores poorly)
+    #   * morans_i_recovery : Pearson r of per-gene Moran's I (imputed full
+    #                         matrix vs ground-truth full matrix).  Secondary;
+    #                         at low mask fractions it is dominated by the
+    #                         unmasked ~80% of entries.
+    from spagapa.analysis.svapa import morans_i as _morans_i
+    from sklearn.neighbors import NearestNeighbors as _SNN
+    _sf_k = min(args.knn_k + 1, n_spots)
+    _sf_nbr = _SNN(n_neighbors=_sf_k).fit(xy).kneighbors(xy, return_distance=False)[:, 1:]
+    # precompute the TRUE neighbour-mean for every (gene, spot) entry
+    # (vectorised: build a nan-aware mean over the kNN index set per spot)
+    print("  precomputing true neighbour means for spatial-fidelity ...")
+    _obs_mask = np.isfinite(values)  # (n_genes, n_spots)
+    # neighbour gather: (n_spots, k) -> build masked sum and count per gene
+    _nbr_vals = values[:, _sf_nbr]  # (n_genes, n_spots, k)
+    _nbr_fin = _obs_mask[:, _sf_nbr]  # (n_genes, n_spots, k)
+    _cnt = _nbr_fin.sum(axis=2).astype(float)            # (n_genes, n_spots)
+    _sum = np.where(_nbr_fin, _nbr_vals, 0.0).sum(axis=2)  # (n_genes, n_spots)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        gt_nbr_mean = np.where(_cnt > 0, _sum / np.where(_cnt == 0, 1, _cnt), np.nan)
+    # per-gene ground-truth Moran's I (for the secondary recovery metric)
+    print("  computing ground-truth per-gene Moran's I ...")
+    gt_morans = np.full(n_genes, np.nan)
+    for g in range(n_genes):
+        v = values[g]
+        if np.isfinite(v).sum() < 10:
+            continue
+        I, _, _ = _morans_i(v, xy, k=8, n_perm=0)
+        gt_morans[g] = I
+
+    def spatial_fidelity(pred_full: np.ndarray, gene_set=None) -> float:
+        """Local spatial-structure recovery at held-out entries.
+
+        For each gene we centre both the imputed held-out values and the true
+        neighbour-means by their *own* gene mean before pooling, so the score
+        measures recovery of the within-gene SPATIAL GRADIENT rather than the
+        dominant bimodal mode (which the per-gene mean trivially predicts).
+
+        A method that imputes a constant per gene (the MEAN baseline) has zero
+        within-gene deviation and therefore scores ~0, while a spatial method
+        whose imputations track the local neighbour-mean scores near +1.
+        """
+        gs = gene_set if gene_set is not None else set(held_out.keys())
+        dev_pr, dev_nm = [], []
+        for g in gs:
+            mi, _ = held_out[g]
+            pv = np.asarray(pred_full[g, mi], dtype=float)
+            nmean = gt_nbr_mean[g, mi]
+            m = np.isfinite(pv) & np.isfinite(nmean)
+            if m.sum() < 2:
+                continue
+            pv = pv[m]; nm = nmean[m]
+            # centre within gene (over the held-out entries of this gene)
+            d_pr = pv - pv.mean()
+            d_nm = nm - nm.mean()
+            dev_pr.extend(d_pr.tolist())
+            dev_nm.extend(d_nm.tolist())
+        if len(dev_pr) < 5:
+            return float("nan")
+        dev_pr = np.asarray(dev_pr); dev_nm = np.asarray(dev_nm)
+        # A method that imputes a CONSTANT per gene (the MEAN baseline) has
+        # zero within-gene deviation everywhere -> it recovers no spatial
+        # gradient, so define its fidelity as 0 (not NaN).
+        if np.std(dev_pr) == 0 or np.std(dev_nm) == 0:
+            return 0.0
+        return float(pearsonr(dev_pr, dev_nm)[0])
+
+    def morans_i_recovery(pred_full: np.ndarray, gene_set=None) -> float:
+        """Secondary: Pearson r of per-gene Moran's I (imputed vs truth)."""
+        gs = gene_set if gene_set is not None else set(held_out.keys())
+        Ig, It = [], []
+        for g in gs:
+            gt = gt_morans[g]
+            if not np.isfinite(gt):
+                continue
+            v = pred_full[g]
+            if np.isfinite(v).sum() < 10:
+                continue
+            I, _, _ = _morans_i(v, xy, k=8, n_perm=0)
+            if np.isfinite(I):
+                Ig.append(I); It.append(gt)
+        if len(Ig) < 5:
+            return float("nan")
+        Ig = np.asarray(Ig); It = np.asarray(It)
+        if np.std(Ig) > 0 and np.std(It) > 0:
+            return float(pearsonr(Ig, It)[0])
+        return float("nan")
+
+    def score_method(pred_full: np.ndarray) -> dict:
+        """Bundle the three per-stratum metrics + spatial fidelity."""
+        return {
+            "all": evaluate(pred_full),
+            "topq_spatial": evaluate(pred_full, topq),
+            "spatial_fidelity": spatial_fidelity(pred_full),
+            "spatial_fidelity_topq": spatial_fidelity(pred_full, topq),
+            "morans_i_recovery": morans_i_recovery(pred_full),
+            "morans_i_recovery_topq": morans_i_recovery(pred_full, topq),
+        }
 
     # ---- per-gene spatial autocorrelation (Moran's-I-like via kNN) ----
     # GP's advantage over the per-gene mean shows up only for genes whose APA
@@ -240,21 +366,58 @@ def main() -> None:
         "min_parent": int(args.min_parent), "knn_k": int(args.knn_k),
         "stapa_k": int(args.stapa_k), "spv_k": int(args.spv_k),
         "n_masked": int(n_masked),
+        "gp_length_scale_multiplier": float(args.length_scale_multiplier),
+        "gp_length_scale_override": (None if args.length_scale is None
+                                     else float(args.length_scale)),
+        "gp_local_noise": bool(args.local_noise),
+        "gp_noise_scale": float(args.noise_scale),
     }}
 
     # ---- Method A: spaGAPA GP (spatial) ----
+    # Two backward-compatible opt-in knobs address GP over-smoothing + weak
+    # uncertainty:
+    #   * --length-scale-multiplier (default 5.0 = historical over-smooth):
+    #     length_scale = median_NN_dist * multiplier.  Lower multipliers
+    #     (1-2) sharpen the kernel so the GP propagates real local signal
+    #     instead of collapsing to the global mean (Moran's-I-recovery goes
+    #     from negative to positive).
+    #   * --local-noise: per-gene noise estimated from local variance so the
+    #     predictive std tracks error instead of being ~constant.
     from scipy.spatial import cKDTree
     from spagapa.imputation import SparseGPImputer
     nn = cKDTree(xy).query(xy, k=2)[0][:, 1]
-    nn_dist = float(np.median(nn)); length_scale = nn_dist * 5
-    print(f"GP length_scale={length_scale:.1f} (NN dist={nn_dist:.1f})")
+    nn_dist = float(np.median(nn))
+    if args.length_scale is not None:
+        length_scale = float(args.length_scale)
+        multiplier = None
+        print(f"GP length_scale={length_scale:.1f} (explicit override, NN dist={nn_dist:.1f})")
+    else:
+        length_scale = nn_dist * args.length_scale_multiplier
+        multiplier = args.length_scale_multiplier
+        print(f"GP length_scale={length_scale:.1f} (NN dist={nn_dist:.1f} x "
+              f"multiplier={multiplier})")
     t0 = time.time()
-    base = SparseGPImputer(n_inducing=min(500, max(100, n_spots // 100)),
-                           length_scale=length_scale, noise_level=0.1)
+    if multiplier is not None:
+        # Let the imputer derive the length scale from median_nn_dist so the
+        # batch wrapper precomputes K_mm / K_nm at the effective length scale.
+        base = SparseGPImputer(
+            n_inducing=min(500, max(100, n_spots // 100)),
+            length_scale=length_scale, noise_level=0.1,
+            length_scale_multiplier=multiplier, local_noise=args.local_noise,
+            noise_scale=args.noise_scale,
+        )
+    else:
+        base = SparseGPImputer(
+            n_inducing=min(500, max(100, n_spots // 100)),
+            length_scale=length_scale, noise_level=0.1,
+            local_noise=args.local_noise,
+            noise_scale=args.noise_scale,
+        )
     train_mask = np.isfinite(masked)   # post-masking observed (excludes held-out)
     batch = base.fit_batch(xy, masked, mask=train_mask, verbose=False)
     gp_pred, gp_unc = batch.impute(return_uncertainty=True)
-    results["methods"]["spaGAPA-GP"] = {"all": evaluate(gp_pred), "topq_spatial": evaluate(gp_pred, topq), "time_s": round(time.time() - t0, 1)}
+    results["methods"]["spaGAPA-GP"] = {
+        **score_method(gp_pred), "time_s": round(time.time() - t0, 1)}
     print(f"  spaGAPA-GP: {results['methods']['spaGAPA-GP']}")
 
     # ---- Method B: spatial-KNN ----
@@ -270,7 +433,8 @@ def main() -> None:
             nv = nv[np.isfinite(nv)]
             if len(nv):
                 sk_pred[g, s] = float(np.mean(nv))
-    results["methods"]["spatial-KNN"] = {"all": evaluate(sk_pred), "topq_spatial": evaluate(sk_pred, topq), "time_s": round(time.time() - t0, 1)}
+    results["methods"]["spatial-KNN"] = {
+        **score_method(sk_pred), "time_s": round(time.time() - t0, 1)}
     print(f"  spatial-KNN: {results['methods']['spatial-KNN']}")
 
     # ---- Method C: mean ----
@@ -280,7 +444,8 @@ def main() -> None:
                        for g in range(n_genes)])
     for g, (mi, _t) in held_out.items():
         mn_pred[g, mi] = gmeans[g]
-    results["methods"]["mean"] = {"all": evaluate(mn_pred), "topq_spatial": evaluate(mn_pred, topq), "time_s": round(time.time() - t0, 1)}
+    results["methods"]["mean"] = {
+        **score_method(mn_pred), "time_s": round(time.time() - t0, 1)}
     print(f"  mean: {results['methods']['mean']}")
 
     # ---- Method D: stAPAminer (expression-KNN) ----
@@ -306,9 +471,9 @@ def main() -> None:
             imp = pd.read_csv(tmp / "stapa_imputed.csv", index_col=0)
             imp = imp.reindex(index=index.index, columns=index.columns)
             print(rc.stdout[-800:])
-            results["methods"]["stAPAminer"] = {"all": evaluate(imp.values),
-                                                 "topq_spatial": evaluate(imp.values, topq),
-                                                 "time_s": round(time.time() - t0, 1)}
+            results["methods"]["stAPAminer"] = {
+                **score_method(imp.values),
+                "time_s": round(time.time() - t0, 1)}
             print(f"  stAPAminer: {results['methods']['stAPAminer']}")
 
     # ---- Method E: spvAPA (multimodal WNN over RNA+APA) ----
@@ -335,9 +500,9 @@ def main() -> None:
             imp = pd.read_csv(tmp / "spv_imputed.csv", index_col=0)
             imp = imp.reindex(index=index.index, columns=index.columns)
             print(rc.stdout[-800:])
-            results["methods"]["spvAPA"] = {"all": evaluate(imp.values),
-                                            "topq_spatial": evaluate(imp.values, topq),
-                                            "time_s": round(time.time() - t0, 1)}
+            results["methods"]["spvAPA"] = {
+                **score_method(imp.values),
+                "time_s": round(time.time() - t0, 1)}
             print(f"  spvAPA: {results['methods']['spvAPA']}")
 
     results["config"]["total_time_s"] = round(time.time() - t_start, 1)
@@ -346,20 +511,33 @@ def main() -> None:
     # ---- table ----
     order = [m for m in ("spaGAPA-GP", "stAPAminer", "spvAPA", "spatial-KNN", "mean")
              if m in results["methods"]]
+    def _sf(r, key="spatial_fidelity"):
+        return r.get(key, float("nan")) if isinstance(r.get(key), (int, float)) else float("nan")
     def print_table(stratum, title):
         print(f"\n  -- {title} --")
-        print(f"    {'Method':<14}{'RMSE':>10}{'Pearson':>10}{'Spearman':>11}{'time_s':>9}")
+        print(f"    {'Method':<14}{'RMSE':>10}{'Pearson':>10}{'Spearman':>11}{'SpatFid':>10}{'time_s':>9}")
         for m in order:
             r = results["methods"][m]
             if "error" in r:
                 print(f"    {m:<14}ERROR"); continue
             d = r[stratum]
+            sf = r.get("spatial_fidelity_topq", float("nan")) if stratum == "topq_spatial" \
+                else r.get("spatial_fidelity", float("nan"))
             print(f"    {m:<14}{d['rmse']:>10.4f}{d['pearson']:>10.4f}"
-                  f"{d['spearman']:>11.4f}{r['time_s']:>9}")
+                  f"{d['spearman']:>11.4f}{sf:>10.4f}{r['time_s']:>9}")
     print(f"\n=== Head-to-head: {label} (mask={args.mask_fraction}, "
           f"n_masked={n_masked}) ===")
     print_table("all", f"ALL genes ({len(held_out)} masked genes)")
     print_table("topq_spatial", f"TOP-QUARTILE spatially-variable genes (n={len(topq)})")
+    # spatial-fidelity summary (the headline metric for this task)
+    print(f"\n  -- SPATIAL FIDELITY (per-gene Moran's-I recovery; higher=better) --")
+    print(f"    {'Method':<14}{'all':>12}{'topq_spatial':>16}")
+    for m in order:
+        r = results["methods"][m]
+        if "error" in r:
+            print(f"    {m:<14}ERROR"); continue
+        print(f"    {m:<14}{_sf(r,'spatial_fidelity'):>12.4f}"
+              f"{_sf(r,'spatial_fidelity_topq'):>16.4f}")
     print(f"\n  results -> {out_dir/'results.json'}")
 
     # ---- figure ----
@@ -368,13 +546,19 @@ def main() -> None:
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         methods = [m for m in order if "error" not in results["methods"][m]]
-        fig, axes = plt.subplots(2, 3, figsize=(15, 8.5))
+        fig, axes = plt.subplots(2, 4, figsize=(19, 8.5))
         for row, (stratum, stitle) in enumerate(
                 [("all", "All genes"), ("topq_spatial", "Top-quartile spatially-variable")]):
             for col, (metric, title) in enumerate(
-                    [("rmse", "RMSE (lower=better)"), ("pearson", "Pearson r"), ("spearman", "Spearman ρ")]):
+                    [("rmse", "RMSE (lower=better)"), ("pearson", "Pearson r"),
+                     ("spearman", "Spearman ρ"),
+                     ("spatial_fidelity", "Spatial fidelity (Moran's-I recovery)")]):
                 ax = axes[row, col]
-                vals = [results["methods"][m][stratum][metric] for m in methods]
+                if metric == "spatial_fidelity":
+                    sfkey = "spatial_fidelity_topq" if stratum == "topq_spatial" else "spatial_fidelity"
+                    vals = [_sf(results["methods"][m], sfkey) for m in methods]
+                else:
+                    vals = [results["methods"][m][stratum][metric] for m in methods]
                 colors = ["#e74c3c", "#9b59b6", "#2ecc71", "#3498db", "#bdc3c7"][:len(methods)]
                 bars = ax.bar(methods, vals, color=colors, edgecolor="black", linewidth=0.8)
                 for b, v in zip(bars, vals):

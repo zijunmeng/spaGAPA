@@ -36,6 +36,28 @@ class MultiViewGraph:
         identity = sparse.eye(self.fused.shape[0], format="csr")
         return identity - d_inv @ self.fused @ d_inv
 
+    def spatial_laplacian(self, normalized: bool = False) -> sparse.csr_matrix:
+        """Return the spatial-only kNN graph Laplacian.
+
+        Use this (not the fused Laplacian) for the factorizer's graph-
+        regularization *spatial smoothing* term: the fused graph is much
+        denser (it also encodes APA/expression-similarity edges), and its
+        SuperLU factorization suffers catastrophic fill-in that hangs above
+        ~20k spots (>700s at 42k). The spatial kNN graph is the correct
+        choice for spatial smoothing and factorizes in ~seconds at 100k.
+        The fused graph remains the right input for Leiden domain detection.
+        """
+        degrees = np.asarray(self.spatial.sum(axis=1)).ravel()
+        if not normalized:
+            return sparse.diags(degrees) - self.spatial
+
+        inv_sqrt = np.zeros_like(degrees, dtype=float)
+        valid = degrees > 0
+        inv_sqrt[valid] = 1.0 / np.sqrt(degrees[valid])
+        d_inv = sparse.diags(inv_sqrt)
+        identity = sparse.eye(self.spatial.shape[0], format="csr")
+        return identity - d_inv @ self.spatial @ d_inv
+
 
 class MultiViewGraphBuilder:
     """

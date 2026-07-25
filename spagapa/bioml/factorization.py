@@ -246,7 +246,17 @@ class GraphRegularizedAPAFactorizer:
                 z_raw = np.linalg.solve(lhs_s, rhs_s[..., None])[..., 0]
 
             if smoother is not None:
-                z = np.column_stack([smoother(z_raw[:, dim]) for dim in range(self.rank)])
+                # Apply the sparse graph smoothing operator ``(I + λL)^{-1}``
+                # to all ``rank`` columns of ``z_raw`` in a single SuperLU
+                # solve. ``scipy.sparse.linalg.factorized`` returns a callable
+                # whose ``solve`` accepts a dense 2-D RHS and solves for every
+                # column at once (one LU factorization, one triangular pass).
+                # This is mathematically identical to looping over the rank
+                # dimension and solving per column, but avoids ``rank`` Python
+                # round-trips through the sparse solver each iteration. The
+                # Laplacian stays sparse throughout (never densified to
+                # (n_spots x n_spots)).
+                z = smoother(z_raw)
             else:
                 z = z_raw
 
