@@ -67,3 +67,8 @@ MOB 无监督 Leiden 恢复 5 层：ARI=0.60 / NMI=0.68（vs spvAPA 监督，无
 
 ### Known-gene APA validation
 - 报告：`pipeline_output/known_gene_validation/report.md`（7/8 AD hits 有文献锚点，ARPP19 直接确认）
+
+## sAPA-RegNet status note (2026-07-25)
+
+- **Descriptive (claim):** Component 1 miRNA site-level APA annotation (genome-wide, APP carries miR-17/106/20 family) + Component 2 spatial regulatory network (control→AD rewiring: SOD2/FAIM2/TARDBP). These are the defensible sAPA-RegNet contributions.
+- **Exploratory (no claim):** Component 3 "perturbation" is regulatory-load scoring only. A cis-regression go/no-go (`scripts/sapa_regnet/perturbation_regression.py`, `log_expr ~ distal_usage + domain + depth`) found the simple "distal APA → miRNA repression → lower expression" stability model is NOT supported at spot level (β mostly positive, no self-consistency with distal miRNA count). Do NOT claim a validated virtual perturbation; report as an honest negative/exploratory result.
