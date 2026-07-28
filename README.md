@@ -12,12 +12,13 @@
 
 spaGAPA is a Python toolkit for spatial transcriptomics APA analysis. It addresses a critical gap in the field: **existing spatial APA tools (stAPAminer, spvAPA) lack uncertainty quantification, cannot scale to high-resolution platforms (Stereo-seq), and provide no mechanism for cross-study APA integration.**
 
-spaGAPA solves these problems through four core innovations:
+spaGAPA solves these problems through three core innovations:
 
-1. **Conformal Uncertainty Quantification** — mathematically guaranteed prediction intervals (validated across 11 datasets, coverage within 0.2% of nominal)
-2. **Sparse Gaussian Process Framework** — O(nm²) probabilistic imputation that scales to 100k spots (competitors fail at 42k)
-3. **APA Batch Correction** — quantile normalization + linear batch removal designed specifically for APA usage matrices
-4. **Subcellular Stereo-seq Support** — the only tool validated on subcellular-resolution Stereo-seq APA data
+1. **Conformal Uncertainty Quantification** — split-conformal prediction intervals with distribution-free marginal coverage, validated across 11 datasets (empirical coverage within 0.2% of nominal) and robust across spatial regions and uncertainty strata
+2. **Sparse Gaussian Process Framework** — O(nm²) probabilistic imputation with heteroscedastic noise estimation; scales to 100k spots (competitors fail at 42k)
+3. **Subcellular Stereo-seq Support** — the only tool validated on subcellular-resolution Stereo-seq APA data (21,455 PAS × 20.7M DNBs)
+
+APA batch correction (quantile normalization + linear removal) is provided as an optional module.
 
 ### Pipeline
 
@@ -173,15 +174,18 @@ print(f"Coverage: {interval.coverage(test_truth)}")  # ≈ 0.90
 ```python
 from spagapa.analysis import DifferentialAPAAnalyzer
 
+# IMPORTANT: for valid statistical inference, the replicate unit must be the
+# biological sample (donor/animal), not the individual spot. Pooling spots
+# from multiple samples inflates n (pseudoreplication). Per-gene per-sample
+# aggregation should precede group comparison when n_samples >= 3.
 analyzer = DifferentialAPAAnalyzer(method="t-test")
 results = analyzer.test_differential_apa(
-    apa_matrix=pooled_matrix,
-    group1_indices=control_spots,
-    group2_indices=ad_spots,
+    apa_matrix=sample_level_matrix,  # gene × n_samples (NOT gene × all_spots)
+    group1_indices=control_sample_indices,
+    group2_indices=ad_sample_indices,
     gene_names=gene_names,
 )
 results = analyzer.adjust_pvalues(results, method="fdr_bh")
-sig = analyzer.filter_results(results, padj_threshold=0.05, logfc_threshold=0.5)
 ```
 
 ### Spatially Variable APA (SVAPA)
@@ -330,7 +334,7 @@ OPENBLAS_NUM_THREADS=8 python -m pytest tests/ -q
 ## Limitations (Honest)
 
 1. **GP doesn't beat per-gene mean on entry-wise RMSE** — the gene-level distal-usage index is bimodal; mean predicts the dominant mode. GP's value is in uncertainty + spatial fidelity, not raw RMSE.
-2. **Raw GP uncertainty correlation is modest** (mean corr 0.068) — conformal calibration compensates mathematically, but locally-adaptive intervals could be tighter.
+2. **Raw GP uncertainty correlation is modest within genes** (per-gene median r ≈ 0.14; pooled r ≈ 0.55 dominated by cross-gene ranking). Conformal calibration provides distribution-free marginal coverage regardless. Heteroscedastic noise estimation (residual-based, Method D) improves global risk stratification without inflating interval width.
 3. **Stereo-seq raw FASTQ + mask availability is a field-wide bottleneck** — only 1 of 66 GEO Stereo-seq datasets has both deposited.
 4. **sAPA-RegNet perturbation model not validated** — cis-regression go/no-go found the simple stability model unsupported at spot level. The regulatory annotation remains descriptive.
 5. **No supervised analysis** — spaGAPA is unsupervised; spvAPA offers supervised sPLS-DA.

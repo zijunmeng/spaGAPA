@@ -22,7 +22,7 @@
 | 1 | **Conformal 不确定性量化**——数学保证的预测区间覆盖率 | stAPAminer/spvAPA 均无任何不确定性 | ✅ 强（11 数据集，偏差 <0.2%）|
 | 2 | **稀疏 GP 概率框架**——O(nm²) 可扩展，提供后验分布 | KNN/WNN 启发式点估计，O(n²) | ✅ 强（42k/100k 完成，竞品崩溃）|
 | 3 | **亚细胞 Stereo-seq APA**——唯一在高分辨 Stereo-seq 上验证 | 竞品 Visium-only | ✅ 强（21,455 PAS × 20.7M DNB）|
-| 4 | **不确定性引导的差异 APA**——37% 假阳性减少 | 无法对标（竞品无不确定性）| ✅ 中强（GSE220442 3v3 验证）|
+| 4 | **不确定性引导的差异 APA**——37% nominal discoveries removed (spot-level exploratory; 0 at sample-level n=3) | 无法对标（竞品无不确定性）| ✅ 中强（GSE220442 3v3 验证）|
 
 ---
 
@@ -93,7 +93,7 @@ GP 在所有指标上击败两个竞品 + 快 5.7–7.2×。
 
 523,174 个测试点，覆盖 7 GSE × 4 组织 × 2 物种。
 
-#### D. 不确定性杀手应用（37% 假阳性减少）
+#### D. 不确定性杀手应用（37% nominal discoveries removed (spot-level exploratory; 0 at sample-level n=3)）
 
 | 过滤策略 | 显著基因数 | 保留率 | 说明 |
 |---------|-----------|--------|------|
@@ -136,7 +136,7 @@ GP 在所有指标上击败两个竞品 + 快 5.7–7.2×。
 | Conformal 不确定性量化 | ❌ | ❌ | ✅ | 11 数据集，coverage 精确 |
 | 概率模型（后验分布）| ❌ KNN | ❌ WNN | ✅ sparse GP | O(nm²) 可扩展 |
 | 亚细胞 Stereo-seq APA | ❌ | ❌ | ✅ | 21k PAS × 20M DNB |
-| 不确定性引导分析 | ❌ | ❌ | ✅ | 37% 假阳性减少 |
+| 不确定性引导分析 | ❌ | ❌ | ✅ | 37% nominal discoveries removed (spot-level exploratory; 0 at sample-level n=3) |
 | 可扩展到 100k spots | ❌ OOM@42k | ❌ FAIL@42k | ✅ | 162s@42k, 511s@100k |
 | APA 批次校正 | ❌ | ❌ | ⚠️ 有模块，待 Harmony 对比 | — |
 
@@ -156,13 +156,13 @@ GP 在所有指标上击败两个竞品 + 快 5.7–7.2×。
 
 ## 4. 三大支柱就绪度
 
-### Pillar 1: 不确定性量化 —— ✅ 85%
+### Pillar 1: 不确定性量化 —— 90% (审计后)
 
 | 组成 | 状态 | 证据 |
 |------|------|------|
 | Conformal 模块 | ✅ 完成 | spagapa/imputation/calibration.py |
 | 全量 coverage 验证 | ✅ 完成 | 11 样本 × 7 GSE，偏差 <0.2% |
-| 杀手应用 | ✅ 完成 | 37% 假阳性减少 + 92% 保留率 |
+| 杀手应用 | ✅ 完成 | 37% nominal discoveries removed (spot-level exploratory; 0 at sample-level n=3) + 92% 保留率 |
 | Raw corr 提升 | ⚠️ 中等 | 0.068（conformal 补偿，不依赖 corr）|
 
 **就绪**：足够 BIB claim。论文写法："First spatial APA tool with conformal-calibrated uncertainty, validated across 11 datasets with <0.2% coverage deviation."

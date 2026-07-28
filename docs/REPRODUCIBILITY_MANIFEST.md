@@ -22,7 +22,7 @@ export RSCRIPT=/home/mengzijun/anaconda3/envs/r442/bin/Rscript
 ```
 
 ### 软件版本
-- Python 3.10（spagapa env），spaGAPA 包（本 repo，16 commits）
+- Python 3.10（spagapa env），spaGAPA 包（本 repo，~50 commits）
 - R 4.4.2（r442 env），共享 lib 含：scAPAtrap 0.2.0、stAPAminer 0.1.0、spvAPA 0.1.0、Seurat 5.1.0、movAPA
 - SAW 8.2.2（Stereo-seq）、STAR 2.7.10b、Space Ranger 4.1.0、samtools/umi_tools/featureCounts
 - 参考基因组：GRCh38 (`/s1/SHARE/00_ref_genecode/04_genecode_GRCh38_STAR_db`, `refdata-gex-GRCh38-2024-A`)、GRCm38 (SAW Mus_musculus_index)
@@ -106,7 +106,7 @@ OPENBLAS_NUM_THREADS=8 ~/anaconda3/envs/spagapa/bin/python scripts/benchmark_run
 ## 4. 测试
 ```bash
 OPENBLAS_NUM_THREADS=8 ~/anaconda3/envs/spagapa/bin/python -m pytest tests/ -q
-# 420 passed / 1 pre-existing failure (highres_bioml Leiden label count, 无关) / 2 skipped
+# 439 passed / 1 pre-existing failure (highres_bioml Leiden label count, 无关) / 2 skipped
 ```
 
 ## 5. Git
