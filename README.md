@@ -41,7 +41,7 @@ Spatial Validation → Sparse GP Imputation (+ Conformal UQ) → APA Quantificat
 | spatial-KNN | 0.147 | 0.913 | 0.849 | 1s |
 | mean | 0.080 | 0.975 | 0.894 | 0.1s |
 
-GP beats both named competitors on every metric and is **12–17× faster**.
+GP outperforms stAPAminer and spvAPA on spatial fidelity and runtime (5.7-7.2× faster), while the per-gene mean remains a strong RMSE baseline. **5.7–7.2× faster**.
 
 ### Scalability (Competitors Fail at High Resolution)
 
