@@ -109,6 +109,21 @@ class SparseGPImputer:
         # / unit tests.
         self._effective_length_scale = None
         self._effective_noise = None
+        # Per-spot (heteroscedastic) noise support.  When ``spot_noise`` is
+        # supplied to ``fit`` it overrides the scalar ``_effective_noise``:
+        # Lambda uses the per-training-spot noise and ``predict`` looks up the
+        # nearest training spot's noise to add to the test-point variance
+        # (heteroscedastic observation noise).  ``_spot_noise_train`` holds the
+        # per-training-spot vector; ``_spot_noise_scalar_fallback`` is used at
+        # test points whose nearest training neighbour is farther than this
+        # median NN distance (avoids importing noise from far-away spots).
+        self._spot_noise_full = None      # length-n_full or None
+        self._spot_noise_train = None     # length-n_train or None
+        self._spot_noise_tree = None      # cKDTree over train_coords or None
+        self._spot_noise_scalar_fallback = None  # float or None
+        # Median NN distance of the full coordinate set (passed via fit) used
+        # as the spatial scale for the heteroscedastic-noise distance cutoff.
+        self._shared_median_nn = None
     
     def _rbf_kernel(
         self,
@@ -263,6 +278,7 @@ class SparseGPImputer:
         K_mm_inv: Optional[np.ndarray] = None,
         k_nm_full: Optional[np.ndarray] = None,
         median_nn_dist: Optional[float] = None,
+        spot_noise: Optional[np.ndarray] = None,
     ):
         """
         Fit sparse GP model.
@@ -298,6 +314,18 @@ class SparseGPImputer:
             ``median_nn_dist * length_scale_multiplier`` (unless an explicit
             ``length_scale`` override is in effect).  This lets callers pass
             the spatial scale once and control smoothing via the multiplier.
+        spot_noise : np.ndarray, optional, shape (n_spots,)
+            Per-spot (heteroscedastic) observation-noise variances in
+            kernel-amplitude units, aligned with ``coordinates``.  When
+            supplied this OVERRIDES both ``noise_level`` and the per-gene
+            ``local_noise`` estimate: each training spot uses its own noise
+            in ``Lambda`` (instead of the broadcast scalar), and ``predict``
+            looks up the nearest training spot's noise to add to the test
+            variance.  This makes the predictive std reflect SPATIAL signal
+            quality (e.g. high-variance neighbourhoods -> higher noise ->
+            wider posterior) rather than being ~constant across tissue.
+            Entries for masked-out spots are ignored (only ``mask`` rows are
+            used).  Must be strictly positive.
 
         Returns
         -------
@@ -325,15 +353,48 @@ class SparseGPImputer:
         else:
             eff_length = float(self.length_scale)
         self._effective_length_scale = eff_length
+        # spatial scale (for heteroscedastic-noise distance cutoff at predict)
+        self._shared_median_nn = (float(median_nn_dist)
+                                  if median_nn_dist is not None else None)
 
         # ---- effective noise ----
-        # local_noise replaces the flat 0.1 with a per-gene estimate so the
-        # predictive std tracks error instead of being ~constant across tissue.
-        if self.local_noise:
+        # Three regimes, in priority order:
+        #   1. spot_noise (heteroscedastic): caller supplies a per-spot vector.
+        #      Each training spot uses its own noise; predict looks up the
+        #      nearest training spot's noise for test points.
+        #   2. local_noise (per-gene): estimate a single noise floor from the
+        #      local kNN variance of this gene's observed values.
+        #   3. constant: the flat noise_level (default 0.1).
+        # The heteroscedastic path keeps ``_effective_noise`` as the scalar
+        # fallback used at test points with no near training neighbour.
+        self._spot_noise_full = None
+        self._spot_noise_train = None
+        self._spot_noise_tree = None
+        self._spot_noise_scalar_fallback = None
+
+        if spot_noise is not None:
+            spot_noise = np.asarray(spot_noise, dtype=float).ravel()
+            if spot_noise.shape[0] != coordinates.shape[0]:
+                raise ValueError(
+                    f"spot_noise length {spot_noise.shape[0]} != n_spots "
+                    f"{coordinates.shape[0]}")
+            if np.any(spot_noise <= 0) or not np.all(np.isfinite(spot_noise)):
+                # clamp non-positive / non-finite to a tiny floor
+                spot_noise = np.where(
+                    (spot_noise <= 0) | ~np.isfinite(spot_noise),
+                    1e-3, spot_noise)
+            spot_noise_train = spot_noise[mask]
+            # scalar fallback = median of per-spot noise (robust central value)
+            scalar_fallback = float(np.median(spot_noise_train))
+            self._effective_noise = scalar_fallback
+            self._spot_noise_full = spot_noise
+            self._spot_noise_train = spot_noise_train
+            self._spot_noise_scalar_fallback = scalar_fallback
+        elif self.local_noise:
             eff_noise = self._estimate_local_noise(train_coords, train_values)
+            self._effective_noise = eff_noise
         else:
-            eff_noise = float(self.noise_level)
-        self._effective_noise = eff_noise
+            self._effective_noise = float(self.noise_level)
 
         # Select inducing points (or reuse a shared precomputed set)
         if inducing_points is not None:
@@ -379,11 +440,15 @@ class SparseGPImputer:
         K_mm_inv = self._K_mm_inv
 
         # Compute Lambda (diagonal correction term)
-        # Lambda = diag(K_nn - Q_nn) + noise  (eff_noise = per-gene local noise
-        # when local_noise=True, else the flat noise_level).
+        # Lambda = diag(K_nn - Q_nn) + noise.  When spot_noise is supplied the
+        # noise term is the per-spot vector (heteroscedastic); otherwise it is
+        # the scalar eff_noise broadcast across all training spots.
         K_nn_diag = np.ones(n)  # RBF kernel diagonal is 1
         Q_nn_diag = np.sum(K_nm @ K_mm_inv * K_nm, axis=1)
-        Lambda = K_nn_diag - Q_nn_diag + eff_noise
+        if self._spot_noise_train is not None:
+            Lambda = K_nn_diag - Q_nn_diag + self._spot_noise_train
+        else:
+            Lambda = K_nn_diag - Q_nn_diag + self._effective_noise
         
         # Compute Sigma = K_mm + K_mn @ Lambda^{-1} @ K_nm
         K_mn = K_nm.T
@@ -399,6 +464,15 @@ class SparseGPImputer:
         # Store training data
         self._train_coords = train_coords
         self._train_values = train_values
+
+        # Build a kNN tree over training coords for heteroscedastic noise
+        # lookup at predict time (only when spot_noise was supplied).
+        if self._spot_noise_train is not None:
+            try:
+                from scipy.spatial import cKDTree
+                self._spot_noise_tree = cKDTree(train_coords)
+            except Exception:
+                self._spot_noise_tree = None
         
         logger.info(
             f"Fitted sparse GP with {n} training points, "
@@ -450,10 +524,33 @@ class SparseGPImputer:
 
         if return_std:
             # Compute predictive variance
-            # Var = K_** - K_*m @ K_mm^{-1} @ K_m*
+            # Var = K_** - K_*m @ K_mm^{-1} @ K_m*  (+ observation noise).
+            # Heteroscedastic regime: when spot_noise was supplied at fit time,
+            # each test point inherits the noise of its nearest training spot
+            # (within a distance cutoff); beyond the cutoff the scalar fallback
+            # (median per-spot noise) is used.  This is the standard sparse-GP
+            # treatment of heteroscedastic observation noise and makes the
+            # predictive std vary across tissue as a function of local signal
+            # quality.
             K_star_star_diag = np.ones(len(coordinates))  # RBF diagonal
             Q_star_star_diag = np.sum(K_star_m @ self._K_mm_inv * K_star_m, axis=1)
-            variance = K_star_star_diag - Q_star_star_diag + eff_noise
+            if self._spot_noise_tree is not None and self._spot_noise_train is not None:
+                # 1-NN lookup of per-spot noise at each test point.
+                dist, idx = self._spot_noise_tree.query(coordinates, k=1)
+                test_noise = self._spot_noise_train[idx]
+                # Guard against importing noise from very distant spots
+                # (extrapolation): use the scalar fallback where the nearest
+                # training spot is farther than 5x the median NN distance.
+                if self._shared_median_nn is not None:
+                    cutoff = 5.0 * float(self._shared_median_nn)
+                else:
+                    cutoff = np.inf
+                far = dist > cutoff
+                if np.any(far):
+                    test_noise[far] = self._spot_noise_scalar_fallback
+                variance = K_star_star_diag - Q_star_star_diag + test_noise
+            else:
+                variance = K_star_star_diag - Q_star_star_diag + eff_noise
             std = np.sqrt(np.maximum(variance, 0))  # Ensure non-negative
 
             return predictions, std
@@ -514,6 +611,7 @@ class SparseGPImputer:
         mask: Optional[np.ndarray] = None,
         n_jobs: int = 1,
         verbose: bool = True,
+        spot_noise: Optional[np.ndarray] = None,
     ) -> 'SparseGPImputerBatch':
         """
         Fit sparse GP models for multiple genes.
@@ -531,6 +629,11 @@ class SparseGPImputer:
             sequentially to keep memory use predictable.
         verbose : bool, default=True
             Print progress every 100 genes.
+        spot_noise : np.ndarray, optional, shape (n_genes, n_spots)
+            Per-spot heteroscedastic observation-noise variances for each gene,
+            aligned with ``values``.  When supplied, row ``g`` is forwarded to
+            ``SparseGPImputer.fit`` as that gene's ``spot_noise`` vector,
+            enabling Methods C/D (spatial / residual noise estimation).
 
         Returns
         -------
@@ -543,6 +646,7 @@ class SparseGPImputer:
             values=values,
             mask=mask,
             verbose=verbose,
+            spot_noise=spot_noise,
         )
 
 
@@ -556,6 +660,7 @@ class SparseGPImputerBatch:
         values: np.ndarray,
         mask: Optional[np.ndarray] = None,
         verbose: bool = True,
+        spot_noise: Optional[np.ndarray] = None,
     ):
         if values.ndim != 2:
             raise ValueError("values must have shape (n_genes, n_spots)")
@@ -566,12 +671,15 @@ class SparseGPImputerBatch:
             )
         if mask is not None and mask.shape != values.shape:
             raise ValueError("mask must have the same shape as values")
+        if spot_noise is not None and spot_noise.shape != values.shape:
+            raise ValueError("spot_noise must have the same shape as values")
 
         self.base_imputer = base_imputer
         self.coordinates = coordinates
         self.values = values
         self.mask = mask
         self.verbose = verbose
+        self.spot_noise = spot_noise
         self.imputers_ = []
         self._fit_batch()
 
@@ -647,6 +755,8 @@ class SparseGPImputerBatch:
             imputer = self._new_imputer()
             gene_values = self.values[gene_idx, :]
             gene_mask = self.mask[gene_idx, :] if self.mask is not None else None
+            gene_spot_noise = (self.spot_noise[gene_idx, :]
+                               if self.spot_noise is not None else None)
             try:
                 # Pass median_nn_dist so each imputer records the same
                 # _effective_length_scale (== shared_eff_length) used to build
@@ -657,6 +767,7 @@ class SparseGPImputerBatch:
                     K_mm_inv=shared_K_mm_inv,
                     k_nm_full=k_nm_full,
                     median_nn_dist=median_nn,
+                    spot_noise=gene_spot_noise,
                 )
                 self.imputers_.append(imputer)
             except Exception as exc:
