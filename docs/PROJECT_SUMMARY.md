@@ -22,7 +22,7 @@
 | 1 | **Conformal 不确定性量化**——数学保证的预测区间覆盖率 | stAPAminer/spvAPA 均无任何不确定性 | ✅ 强（11 数据集，偏差 <0.2%）|
 | 2 | **稀疏 GP 概率框架**——O(nm²) 可扩展，提供后验分布 | KNN/WNN 启发式点估计，O(n²) | ✅ 强（42k/100k 完成，竞品崩溃）|
 | 3 | **亚细胞 Stereo-seq APA**——唯一在高分辨 Stereo-seq 上验证 | 竞品 Visium-only | ✅ 强（21,455 PAS × 20.7M DNB）|
-| 4 | **不确定性引导的差异 APA**——37% nominal discoveries removed (spot-level exploratory; 0 at sample-level n=3) | 无法对标（竞品无不确定性）| ✅ 中强（GSE220442 3v3 验证）|
+| 4 | **不确定性引导的差异 APA**——37% nominal discoveries removed (spot-level exploratory; 0 at sample-level n=3) | 无法对标（竞品无不确定性）| ⚠️ spot-level exploratory (sample-level n=3: 0 significant)|
 
 ---
 
@@ -98,7 +98,7 @@ GP 在所有指标上击败两个竞品 + 快 5.7–7.2×。
 | 过滤策略 | 显著基因数 | 保留率 | 说明 |
 |---------|-----------|--------|------|
 | 全量 spot（baseline）| 91 | 100% | 含假阳性 |
-| 基因特异性 top-50% 置信 | 57 | 62.6% | **移除 37% 边界调用** |
+| 基因特异性 top-50% 置信 | 57 | 62.6% | **removed 37% of nominal discoveries with weaker statistical support (spot-level exploratory)** |
 | Robust core（4 层全显著）| 55 | 60.4% | 高可信差异 APA |
 
 被移除的 34 个基因：effect size 更弱（|Δ| 0.092 vs 0.105）、padj 弱 ~160 个数量级——正是假阳性特征。
@@ -231,7 +231,7 @@ GP 在所有指标上击败两个竞品 + 快 5.7–7.2×。
 
 1. **Conformal 校准**：首个具备数学保证覆盖率的空间 APA 不确定性量化（11 数据集验证，偏差 <0.2%）
 2. **稀疏 GP 框架**：概率插补 + 后验方差 + O(nm²) 可扩展，使亚细胞 Stereo-seq APA 分析首次成为可能
-3. **不确定性引导分析**：校准后的不确定性可减少 37% 差异 APA 假阳性，提供高可信基因集
+3. **不确定性引导分析**：calibrated uncertainty enables risk-stratified exploratory analysis (spot-level; 0 at sample-level n=3)
 4. **竞品对比**：GP 在精度 + 速度上在 spatial fidelity 和速度上优于 stAPAminer 和 spvAPA，且是唯一在 42k+ spots 上完成的工具
 
 ### 6.3 Figure 设计（7 主图 + 补图）
