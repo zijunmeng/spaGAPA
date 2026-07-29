@@ -17,6 +17,11 @@ import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 
+try:
+    from threadpoolctl import threadpool_limits
+except Exception:  # pragma: no cover - optional runtime optimization
+    threadpool_limits = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -422,7 +427,11 @@ class GPImputerBatch:
         gene_mask = self.mask[gene_idx, :] if self.mask is not None else None
         
         try:
-            imputer.fit(self.coordinates, gene_values, gene_mask)
+            if threadpool_limits is None:
+                imputer.fit(self.coordinates, gene_values, gene_mask)
+            else:
+                with threadpool_limits(limits=1):
+                    imputer.fit(self.coordinates, gene_values, gene_mask)
             return gene_idx, imputer
         except Exception as e:
             logger.warning(f"Failed to fit gene {gene_idx}: {e}")

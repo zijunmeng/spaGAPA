@@ -139,6 +139,7 @@ data/processed/
 benchmark_results/
 pipeline_output/
 results/
+logs/
 *.npy
 *.npz
 *.bam

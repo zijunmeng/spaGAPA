@@ -89,6 +89,8 @@ _opt_analysis_preset = click.option(
               help='Exact GP noise/regularization parameter.')
 @click.option('--gp-n-restarts', default=1, show_default=True,
               help='Number of GP hyperparameter optimizer restarts.')
+@click.option('--gp-n-jobs', default=1, show_default=True,
+              help='Number of CPU workers for batch GP fitting.')
 @click.option('--sparse-gp-inducing-method', default='kmeans', show_default=True,
               type=click.Choice(['kmeans', 'random', 'grid']),
               help='Sparse GP inducing point selection method.')
@@ -123,6 +125,8 @@ _opt_analysis_preset = click.option(
               help='BioML graph KNN size.')
 @click.option('--bioml-blend', default=0.1, show_default=True,
               help='Blend BioML factorized matrix into GP imputed values.')
+@click.option('--bioml-domains-only/--bioml-refine-values', default=False, show_default=True,
+              help='Use BioML only for domain recovery while preserving GP imputed APA values.')
 @click.option('--bioml-spatial-weight', default=0.4, show_default=True,
               help='BioML spatial graph weight.')
 @click.option('--bioml-expression-weight', default=0.4, show_default=True,
@@ -180,6 +184,7 @@ def run(**kwargs):
         kernel_type=kwargs['kernel'],
         gp_alpha=kwargs['gp_alpha'],
         gp_n_restarts_optimizer=kwargs['gp_n_restarts'],
+        gp_n_jobs=kwargs['gp_n_jobs'],
         use_sparse_gp=kwargs['sparse'],
         sparse_gp_inducing_method=kwargs['sparse_gp_inducing_method'],
         sparse_gp_length_scale=(
@@ -197,6 +202,7 @@ def run(**kwargs):
         bioml_max_iter=kwargs['bioml_max_iter'],
         bioml_n_neighbors=kwargs['bioml_n_neighbors'],
         bioml_blend=kwargs['bioml_blend'],
+        bioml_domains_only=kwargs['bioml_domains_only'],
         bioml_domain_method=kwargs['bioml_domain_method'],
         bioml_spatial_weight=kwargs['bioml_spatial_weight'],
         bioml_expression_weight=kwargs['bioml_expression_weight'],
@@ -247,7 +253,7 @@ def run(**kwargs):
     domains = results.get('domains')
     if domains is not None:
         click.echo(f"   Spatial domains: {domains['n_domains']}")
-        if domains.get('method') in {'spagapa_bioml', 'spagapa_highres_bioml'}:
+        if domains.get('method') in {'spagapa_bioml', 'spagapa_highres_bioml', 'spagapa_gp_bioml_domains'}:
             click.echo(f"   BioML domain method: {domains.get('domain_method')}")
 
     preset = results.get('analysis_preset')
