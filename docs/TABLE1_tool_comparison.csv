@@ -1,0 +1,11 @@
+Feature,stAPAminer,spvAPA,metaAPA,spaGAPA
+Core task,Spatial APA imputation/pattern,Imputation + supervised selection,PAS caller output integration,Probabilistic spatial inference
+Input,APA + expression matrix,APA + expression + labels,Multiple PAS caller outputs,PAS x spot matrix + coordinates
+Spatial modeling,KNN (heuristic),WNN (heuristic),None,Sparse GP (probabilistic)
+Uncertainty,None,None,Site confidence (caller-level),Conformal-calibrated intervals
+Supervised labels,Optional layer labels,Required (sPLS-DA),None,None (unsupervised)
+High-resolution,Not validated (Visium),Not validated (Visium),N/A,Stereo-seq (21k PAS)
+Scalability,O(n^2) fails @ 42k,O(n^2) fails @ 42k,N/A,"O(nm^2), completes @ 100k"
+Batch correction,None,None,None,QN + linear (optional module)
+Primary output,"RUD, SVAPA","Features, visualization",Integrated sites,"Posterior mean + interval + domains"
+Validation data,MOB x 3 replicates,9 datasets (sc + ST),4 datasets,"9 GSE x 32 samples + Stereo-seq"
