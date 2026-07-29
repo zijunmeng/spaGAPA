@@ -365,11 +365,6 @@ Use:
 
 ### Milestone 8: High-resolution dataset scouting - audited + Stereo-seq APA pilot proven end-to-end
 
-Created candidate documents:
-
-- `docs/highres_st_geo_candidates.md`
-- `docs/stereo_visiumhd_geo_candidates.md`
-
 #### 8.1 High-resolution candidate audit (GEO suppl + SRA raw FASTQ via ENA)
 
 The top candidates were audited at both the GEO supplementary level (what is actually inside each `RAW.tar`) and the SRA raw-FASTQ level (true sizes from ENA `filereport`). Candidates have moved from paper lists to evidence-backed entries.

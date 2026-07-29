@@ -296,7 +296,6 @@ spagapa/
 ### Processing Logs
 - `logs/20260710_数据处理记录.md` – `logs/20260726_数据处理记录.md`
 - `docs/superpowers/specs/` – Design specs (Phase 1, 2, 3)
-- `docs/BIB_figure_set.md` – Figure index with source paths
 - `docs/REPRODUCIBILITY_MANIFEST.md` – Full environment + command manifest
 
 ### Tests

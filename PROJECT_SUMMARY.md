@@ -387,11 +387,6 @@ Use:
 
 ### 7.5 High-resolution candidate search
 
-Candidate documents:
-
-- `docs/highres_st_geo_candidates.md`
-- `docs/stereo_visiumhd_geo_candidates.md`
-
 Priority:
 
 - Stereo-seq first for true APA raw-read evidence.

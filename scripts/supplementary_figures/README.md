@@ -41,5 +41,6 @@ first if the cache is stale or missing (they write to
 | S12 | `supp_fig12_stereo_qc_binning.py` | Stereo-seq QC + binning sensitivity | `_cache/s12_tes_distances.npy` (`_stereo_3end.py`) |
 | S13 | `supp_fig13_batch_correction.py` | Batch correction: QN vs Harmony | `apa_bias_correction/` |
 
-Figure legends (panel-level) are in the manuscript:
-`docs/SPAGAPA_FULL_MANUSCRIPT.md` → *Supplementary Figures* section.
+Panel-level figure descriptions are documented in each `supp_figNN_*.py`
+docstring (top-of-file); main figures 1–7 are indexed in
+`scripts/main_figures/figure_index.md`.
