@@ -341,6 +341,64 @@ Decision:
   scAPAtrap/Sierra/polyApipe to produce `apa_matrix.csv` and site-level audit
   tables.
 
+Space Ranger and scAPAtrap progress as of 2026-06-16:
+
+- Space Ranger completed successfully for `GSM5420751 / SRR15052395`.
+- Barcode/UMI-preserving BAM:
+
+```text
+pipeline_output/gse179572_GSM5420751_sr/outs/possorted_genome_bam.bam
+```
+
+- BAM tag audit confirmed 10x-style barcode and UMI tags:
+  - `CB` / `CR`: corrected/raw spot barcode;
+  - `UB` / `UR`: corrected/raw UMI;
+  - `GX` / `GN`: gene annotation tags.
+- The first scAPAtrap attempt entered `findUniqueMap` and reached
+  `dedupByPos`, but it was launched in a foreground validation session and was
+  interrupted before `scAPAtrapData.rda` was produced.
+- scAPAtrap was relaunched with a staging BAM path so all large intermediate
+  files are isolated from the Space Ranger output directory. The staging
+  directory and BAM stem intentionally avoid strings such as `_bam`, because
+  scAPAtrap builds intermediate filenames with `gsub(".bam", "", input)`:
+
+```text
+pipeline_output/gse179572_GSM5420751_scapatrap/stage/spaceranger_input.bam
+```
+
+- The first staging attempt used `work_bam/possorted_genome_bam.bam` and failed
+  at `separateBamBystrand`, because scAPAtrap's regex-style `gsub(".bam", "")`
+  rewrote the output path to a non-existent `work/` directory. The current
+  `stage/spaceranger_input.bam` path fixes this.
+
+- Launcher scripts:
+
+```text
+scripts/run_scapatrap_spaceranger.py
+scripts/run_scapatrap_spaceranger.sh
+```
+
+- Current target outputs after successful scAPAtrap completion:
+
+```text
+data/processed/gse179572_gsm5420751_scapatrap/
+  apa_matrix.csv
+  apa_sites.csv.gz
+  apa_site_counts.csv.gz
+  coordinates.csv
+  metadata.csv
+  qc_summary.json
+```
+
+- Monitor commands:
+
+```bash
+cd /s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA
+tail -f pipeline_output/gse179572_GSM5420751_scapatrap/logs/run_scapatrap_spaceranger.nohup.log
+tail -f pipeline_output/gse179572_GSM5420751_scapatrap/logs/scapatrap_internal.log
+pgrep -af 'run_scapatrap_spaceranger|run_scapatrap.R|scAPAtrap|Rscript'
+```
+
 ## 8. Planned APA Calling Route
 
 Preferred route:

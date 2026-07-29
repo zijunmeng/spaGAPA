@@ -1,458 +1,510 @@
-# spaGAPA 项目详细总结
+# spaGAPA Project Summary
 
-**全称**：spatial Gaussian process-based APA analyzer  
-**版本**：v0.1.0 (Beta)  
-**语言**：Python 3.10  
-**开发环境**：conda env `spagapa`  
-**更新日期**：2026-05-07
-
----
-
-## 1. 项目概述
-
-spaGAPA 是一个面向空间转录组数据的**选择性多聚腺苷酸化（APA）分析工具**。核心创新是使用**高斯过程（Gaussian Process）**替代传统 KNN 进行空间插补，并提供**不确定性量化**，弥补了现有工具（如 stAPAminer）的关键缺陷。
-
-**目标用户**：生物信息学研究人员、计算生物学家、空间转录组实验室  
-**目标期刊**：Bioinformatics（IF~6）或更高  
-**许可证**：MIT
+**Project name**: spaGAPA
+**Full name**: spatial Gaussian-process and graph-aware APA analyzer
+**Language**: Python
+**Main environment**: conda env `spagapa`
+**Current manuscript target**: Briefings in Bioinformatics (BIB)
+**Last updated**: 2026-07-13
 
 ---
 
-## 2. 项目结构
+## 1. Executive Summary
 
-```
-spaGAPA/
-├── spagapa/                          # 主包（11,200+ 行）
-│   ├── __init__.py                   # 包入口，导出所有主要类
-│   ├── pipeline.py                   # 560行 - SpaGAPA 主流程类
-│   ├── core/                         # 核心数据模型
-│   │   ├── apa_dataset.py            # APADataset - AnnData 包装器
-│   │   └── apa_site.py               # APASite, APASiteCollection
-│   ├── io/                           # I/O 模块
-│   │   ├── readers.py               # BAMReader, SpatialCoordinateReader, AnndataReader, BEDReader
-│   │   ├── writers.py               # ResultWriter, BEDWriter
-│   │   └── scapatrap_wrapper.py     # scAPAtrap Python 包装器
-│   ├── spatial/                      # 空间计算
-│   │   └── neighbors.py             # SpatialNeighbors (KNN/Radius/Delaunay)
-│   ├── calling/                      # APA 位点识别
-│   │   ├── spatial_validator.py     # 空间验证算法
-│   │   └── quality_filter.py        # 质量过滤器
-│   ├── imputation/                   # GP 插补（核心创新）
-│   │   ├── gp_imputer.py            # GPImputer + GPImputerBatch
-│   │   └── sparse_gp.py             # SparseGPImputer + BlockGPImputer
-│   ├── quantification/               # APA 定量
-│   │   ├── apa_indices.py           # RUD, PDUI, WUL, PAI 计算
-│   │   └── qc_metrics.py            # QCReportGenerator, 交叉验证
-│   ├── analysis/                     # 下游分析
-│   │   ├── domain_identifier.py     # 空间域识别 (K-means/Leiden/Louvain)
-│   │   ├── differential.py          # 差异 APA 分析
-│   │   ├── spatial_pattern.py       # Moran's I, SVAPA 检测
-│   │   ├── gp_trend_detector.py     # GP 似然比检验 SVAPA（核心创新）
-│   │   └── trajectory.py            # 空间轨迹分析 (444行, 已完成)
-│   ├── visualization/                # 可视化
-│   │   ├── spatial_plots.py         # SpatialPlotter - 空间分布图
-│   │   ├── statistical_plots.py     # StatisticalPlotter - 火山图/热图等
-│   │   └── qc_plots.py             # QCPlotter - 质量控制图
-│   ├── benchmark/                    # Benchmark 框架
-│   │   ├── simulator.py             # SpatialAPASimulator + MOBSimulator
-│   │   ├── evaluator.py             # BenchmarkEvaluator 多方法对比
-│   │   ├── real_data_benchmark.py   # 真实数据 benchmark 脚本
-│   │   └── benchmark_plots.py       # 发表级对比图
-│   ├── preprocessing/                # 空模块（待实现）
-│   └── utils/                        # 空模块（待实现）
-├── tests/                            # 测试（288+ 个测试）
-│   ├── unit/                         # 17 个单元测试文件
-│   ├── integration/                  # 集成测试（空）
-│   └── benchmark/                    # 性能测试
-├── examples/                         # 10 个使用示例脚本
-├── docs/                             # 用户文档
-├── pyproject.toml                    # 项目配置
-├── setup.py                          # 安装脚本
-├── Makefile                          # 便捷命令
-└── PROGRESS.md                       # 开发进度记录
-```
+spaGAPA is a Python toolkit for alternative polyadenylation (APA) analysis in spatial transcriptomics data. The project was initially designed around spatially aware APA validation and Gaussian process (GP) imputation. It has now evolved into a broader statistical and machine-learning framework for sparse spatial APA signals.
+
+The current BIB-oriented thesis is:
+
+> Spatial APA signals are sparse, spatially structured, uncertain, and highly dependent on tissue context. A strong spatial APA framework should not only call APA sites, but also validate spatial support, recover missing APA usage with calibrated uncertainty, separate value recovery from biological-domain discovery, and provide reproducible benchmarks on real spatial transcriptomics datasets.
+
+spaGAPA addresses this through four connected layers:
+
+1. Real-data APA input construction from Space Ranger BAM and scAPAtrap-compatible APA/PAS evidence.
+2. Spatial APA validation, quantification, and GP-based imputation with uncertainty.
+3. CPU-friendly BioML graph learning for biological-domain recovery.
+4. Benchmark and visualization infrastructure for simulation, MOB/layer-like data, high-resolution pseudo-bin data, and real datasets.
+
+The project is currently in the phase of converting algorithmic prototypes into manuscript-grade evidence, especially real-data benchmarks and high-resolution validation.
 
 ---
 
-## 3. 核心模块详述
+## 2. Scientific Motivation
 
-### 3.1 核心数据模型（`core/`）
+APA changes the 3' end of transcripts and can alter transcript stability, localization, translation, and regulatory interactions. Existing single-cell and spatial transcriptomics APA tools are useful, but several problems remain under-addressed:
 
-| 类 | 功能 | 行数 |
-|---|------|------|
-| `APADataset` | 基于 AnnData 的 APA 专用数据容器，兼容 scanpy/squidpy 生态 | ~350 |
-| `APASite` | 单个 APA 位点数据结构（染色体/位置/链/基因/类型/信号等） | ~400 |
-| `APASiteCollection` | APA 位点集合，支持过滤/合并/导出 BED | ~400 |
+- APA measurements are sparse and dropout-prone.
+- Spatial transcriptomics adds physical neighborhood structure that should be modeled explicitly.
+- KNN-style imputation often lacks calibrated uncertainty.
+- Biological domain recovery and APA value recovery are related but not identical tasks.
+- High-resolution spatial transcriptomics introduces stronger sparsity and scalability constraints.
+- Published tools often lack comprehensive, reproducible benchmark pipelines.
 
-### 3.2 I/O 模块（`io/`）
-
-| 类 | 功能 |
-|---|------|
-| `BAMReader` | 基于 pysam 的 BAM 文件读取 |
-| `SpatialCoordinateReader` | 空间坐标读取（CSV/TSV/10x Visium 格式） |
-| `AnndataReader` / `BEDReader` | AnnData 和 BED 格式读取 |
-| `ResultWriter` / `BEDWriter` | 多格式输出（BED/CSV/TSV/H5AD/JSON） |
-| `ScAPAtrapWrapper` | **R scAPAtrap 的 Python 包装器**，自动检查安装、调用 R 函数、解析输出 |
-
-### 3.3 空间感知 APA Calling（`calling/` + `spatial/`）
-
-**SpatialNeighbors**：构建空间图（KNN / Radius / Delaunay 三角剖分）  
-**SpatialValidator**：
-- 空间支持度评分（邻居中检测到该位点的比例）
-- 距离加权支持度
-- 空间一致性过滤
-- Moran's I 空间自相关
-
-**QualityFilter**：按 read count / spot count / 均值 / CV / 空间支持度过滤，生成 QC 报告
-
-### 3.4 GP 插补（`imputation/`）— ⭐核心创新
-
-**GPImputer**：
-- 核函数：RBF（光滑模式）、Matérn（灵活模式）、auto（自动选择）
-- 自动长度尺度估计
-- 输出：插补值 + 标准差 + 协方差矩阵
-- 批量处理：`GPImputerBatch` 支持多基因并行（multiprocessing + tqdm）
-
-**SparseGPImputer**（性能优化）：
-- 诱导点方法：K-means / random / grid 三种选择
-- 复杂度：O(n³) → O(nm²)，5-10x 加速
-
-**BlockGPImputer**（大规模数据）：
-- 自动空间分块 + 边界重叠处理
-- 支持 1000+ spots 的数据集
-
-### 3.5 APA 定量（`quantification/`）
-
-| 指标 | 公式 | 含义 |
-|------|------|------|
-| RUD | distal / (proximal + distal) | 远端位点相对使用率 [0,1] |
-| PDUI | 100 × RUD | 远端使用百分比 [0,100] |
-| WUL | Σ(countᵢ × positionᵢ) / Σ(countᵢ) | 加权 3' UTR 长度 |
-| PAI | log₂(proximal/distal) 或差值 | Poly(A) 位点偏好指数 |
-
-**QCReportGenerator**：支持多 section（imputation / quantification / spatial / coverage），多格式输出（dict / DataFrame / text / CSV / JSON），方法间交叉验证对比。
-
-### 3.6 下游分析（`analysis/`）
-
-**DomainIdentifier**：K-means / Leiden / Louvain 聚类 + 空间平滑 + 小域移除  
-**DifferentialAPAAnalyzer**：Wilcoxon / Welch's t-test / permutation + FDR/Bonferroni 校正  
-**SpatialPatternAnalyzer**：Moran's I + SVAPA 基因识别 + 空间模式聚类（层次聚类）  
-**GPTrendDetector** — ⭐⭐**最重要创新**⭐⭐：
-1. **GP 似然比检验**：比较有/无空间结构的模型
-2. **不确定性加权 Moran's I**：用 1/uncertainty 对观测值加权
-3. **空间方差分解**：量化空间方差 vs 随机方差
-4. 批量 SVAPA 检测 + FDR 校正
-
-**TrajectoryAnalyzer**（已实现 444 行，延后到 v1.1）：
-- 最小生成树 / PCA 主曲线轨迹推断
-- 沿轨迹 GAM 平滑拟合
-- APA 切换点检测（一阶导数分析）
-
-### 3.7 可视化（`visualization/`）
-
-| 类 | 功能 | 代码量 |
-|---|------|--------|
-| `SpatialPlotter` | 空间 APA 散点图、域可视化、多基因对比网格、差异空间图 | ~570行 |
-| `StatisticalPlotter` | 火山图、层次聚类热图、箱线图、小提琴图 | ~570行 |
-| `QCPlotter` | 插补质量评估、空间支持可视化、dropout 统计、QC 报告 | ~200行 |
-
-### 3.8 Benchmark 框架（`benchmark/`）
-
-**SpatialAPASimulator**（372行）：
-- 4 种空间模式类型（梯度/域特异性/保守/混合）
-- 3 种难度等级（easy/medium/hard）
-- 可配置 dropout 率和噪声水平
-- 完整的 ground truth 输出
-
-**MOBSimulator**：高保真 MOB 同心环结构模拟器
-
-**BenchmarkEvaluator**（414行）：
-- 基线方法：mean / median / KNN-spatial（stAPAminer 类） / GP
-- 指标：RMSE / MAE / Pearson / Spearman / R² / Bias
-- 发表级对比图自动生成
-
-### 3.9 主 Pipeline（`pipeline.py`）
-
-`SpaGAPA` 类整合完整分析流程（7 步）：
-1. 数据加载（BAM 或已有 dataset）
-2. 空间验证 + 质量过滤
-3. GP 插补（可选稀疏 GP）
-4. APA 定量
-5. 空间域识别
-6. 差异 APA 分析
-7. SVAPA 基因检测
+spaGAPA is designed around these gaps.
 
 ---
 
-## 4. 与竞品的对比分析
+## 3. Core Contributions
 
-### 4.1 参考/竞品包概况
+### 3.1 Spatial APA data model and workflow
 
-| 包 | 语言 | 功能定位 | 与 spaGAPA 关系 |
-|----|------|---------|----------------|
-| **scAPAtrap** | R | 从 BAM 文件识别 poly(A) 位点 | spaGAPA 将其作为 APA calling 的前端 |
-| **stAPAminer** | R (~570行) | 空间 APA 分析 | **主要竞品**，spaGAPA 旨在全面超越 |
-| **metaAPA** | Nextflow+R | 多工具 APA 位点集成 | 互补工具，非直接竞争 |
+spaGAPA provides dedicated data structures and workflow utilities for spatial APA analysis:
 
-### 4.2 scAPAtrap 详细分析
+- APA site representation.
+- APA count/usage matrix handling.
+- Spatial coordinate handling.
+- Result writing.
+- Integration with AnnData-like analysis ecosystems.
+- CLI and pipeline presets.
 
-**算法流程**（6 大模块）：
-1. `findUniqueMap` — samtools 过滤唯一比对 + 排序 + 索引
-2. `dedupByPos` — umi_tools 去重
-3. `separateBamBystrand` — 正负链分离
-4. `findPeaksByStrand` — derfinder 全基因组覆盖度计算 + 宽峰迭代拆分
-5. `findTails` — 通过 soft-clipping 检测 polyA tail（A 富集序列），确定精确切割位点
-6. `countPeaks` — featureCounts + umi_tools 定量
+This makes spaGAPA a package rather than a one-off benchmark script.
 
-**spaGAPA 的集成方式**：`spagapa/io/scapatrap_wrapper.py` 实现了 Python 包装器，调用 R 执行上述流程，解析输出为 `peaks_meta` 和 `peaks_counts`。
+### 3.2 Spatial validation before downstream modeling
 
-### 4.3 stAPAminer — 主要竞品深度对比
+APA sites are not treated as independent molecular events detached from tissue geometry. spaGAPA includes spatial validation and filtering modules that evaluate:
 
-**stAPAminer 架构**（570行 R 代码）：
-- `APA.R`（~160行）：`computeAPAIndex` + `imputeAPAIndex` + `optimalKvalue`
-- `spatialAPA.R`（~410行）：Seurat 聚类 + 差异分析 + SPARK SVAPA + 可视化 + 模式聚类
+- read support
+- spot support
+- spatial support
+- neighbor consistency
+- spatial autocorrelation
 
-**KNN 插补核心逻辑**（`imputeAPAIndex`）：
-```
-1. 基于基因表达矩阵计算 spot 间欧氏距离（不是空间坐标！）
-2. 选 k=10 个最近邻居
-3. 缺失值 = k 近邻均值
-4. 迭代最多 10 轮直至收敛
-5. 初始化：若基因表达为 0 则 APA index 填 0
-```
+This layer is important because noisy APA calls can otherwise dominate imputation and downstream SVAPA detection.
 
-**stAPAminer 的局限性**：
-- KNN 用**基因表达距离**而非**空间坐标**，丢失了空间位置信息
-- 无不确定性估计，无法区分可靠 vs 不可靠的插补值
-- SVAPA 检测依赖 SPARK（第三方 R 包，额外依赖）
-- 无可扩展性方案（无稀疏近似 / 分块处理）
-- 无模拟数据和 Benchmark 框架
-- 纯 R 实现，与 Python 生态隔离
+### 3.3 GP-based APA value recovery with uncertainty
 
-### 4.4 系统化对比表
+spaGAPA implements Gaussian process-based imputation for APA usage:
 
-| 维度 | stAPAminer | spaGAPA | 优势方 |
-|------|-----------|---------|--------|
-| **插补方法** | KNN (k=10)，基于基因表达距离 | GP (RBF/Matérn)，基于空间坐标协方差 | **spaGAPA** |
-| **不确定性量化** | ❌ 无 | ✅ 后验标准差 + 协方差 | **spaGAPA** |
-| **空间验证** | ❌ 无 | ✅ 空间支持度 + 一致性过滤 | **spaGAPA** |
-| **SVAPA 检测** | SPARK（单一方法） | GP 似然比检验 + 不确定性加权 Moran's I + 方差分解 | **spaGAPA** |
-| **核函数选择** | 固定 KNN | RBF / Matérn / auto | **spaGAPA** |
-| **可扩展性** | 仅线性 | 稀疏 GP (5-10x) + 分块处理 | **spaGAPA** |
-| **质量控制** | 基础过滤 | 多维度过滤 + QC 报告 + 交叉验证 | **spaGAPA** |
-| **Benchmark** | ❌ 无 | ✅ 模拟器 + 评估器 + 多方法对比 | **spaGAPA** |
-| **理论基础** | 启发式 | 贝叶斯非参数框架 | **spaGAPA** |
-| **代码量** | ~570 行 R | ~11,200 行 Python | **spaGAPA** |
-| **测试** | 0 | 288+ 单元测试，100% 通过 | **spaGAPA** |
-| **语言生态** | R | Python（与 scanpy/squidpy 无缝集成） | **spaGAPA** |
-| **真实数据验证** | ✅ MOB（已发表） | ⏳ 脚本就绪，等待数据下载 | **stAPAminer** |
-| **交互式可视化** | ❌ 仅 ggplot2 静态 | ⏳ Plotly 交互（延后 v1.1） | 持平 |
+- spatial kernels
+- sparse/fast variants
+- batch imputation
+- posterior standard deviation
+- uncertainty-aware downstream analysis
 
-### 4.5 GP vs KNN 的技术深度对比
+The main advantage of GP over simple KNN is not just lower error in favorable settings. The key statistical advantage is that GP provides uncertainty estimates, which can be used for:
 
-**KNN（stAPAminer）**：
-```
-ŷ(x*) = mean(y of k nearest neighbors in gene expression space)
-```
-- "空间信息"仅在基因表达空间中隐式体现
-- 所有邻居等权或简单距离加权
-- 无理论保证，对 k 敏感
+- confidence filtering
+- uncertainty-aware SVAPA ranking
+- interpretation of poorly supported spatial regions
+- calibration analysis
 
-**GP（spaGAPA）**：
-```
-y(x) ~ GP(μ(x), k(x, x'))
-k(x, x') = σ² × (1 + √3d/l) × exp(-√3d/l)    [Matérn 3/2]
+### 3.4 Systematic exploration of expression-informed GP
 
-预测：
-μ* = k(x*, X) K⁻¹ y
-σ*² = k(x*, x*) - k(x*, X) K⁻¹ k(X, x*)
-```
-- **明确建模空间协方差结构**
-- **长度尺度 l 自动学习**：反映 APA 信号的空间相关半径
-- **后验标准差 σ***：每个预测都有置信区间
-- **贝叶斯最优**：在正确核函数假设下达到最小均方误差
+The project explicitly tested whether expression-informed GP should become the central method. Explored variants include:
 
-### 4.6 metaAPA 分析
+- additive expression/spatial GP
+- radial GP
+- product-kernel GP
+- adaptive expression weighting
+- layer-local expression kernel
 
-metaAPA 是 Nextflow 管道，集成多个 APA caller（Sierra / polyApipe / SCAPE）的结果。两种策略：
-- **Position-based**：基于基因组坐标距离合并相近位点
-- **Similarity-based**：基于表达相似性（Spearman/Cosine/Jaccard 等距离 + K-means/PAM/hdbscan 聚类）
+Benchmark conclusion:
 
-metaAPA 不直接竞争 spaGAPA，其集成策略可作为 spaGAPA 未来整合多个 APA caller 结果的参考。
+- Expression-aware GP can improve some domain metrics in selected settings.
+- It did not robustly dominate spatial GP or graph/KNN baselines.
+- It sometimes risks worse calibration or runtime.
 
----
+Strategic decision:
 
-## 5. 当前进展
+- Expression-informed GP remains an experimental/ablation component.
+- It is not the main BIB method.
+- Biological-domain recovery is handled by a separate BioML graph route.
 
-### 5.1 完成度
+This is important because it prevents the method from being overclaimed.
 
-| 阶段 | 状态 | 测试数 | 代码量 |
-|------|------|--------|--------|
-| Phase 1: 项目搭建 + 核心数据模型 | ✅ 100% | 49 | ~2,000 |
-| Phase 2: 核心算法 (calling/imputation/quantification) | ✅ 100% | 136 | ~4,000 |
-| Phase 3: 分析 + 可视化 | ✅ 100% | 78 | ~3,800 |
-| Phase 4: Benchmark | ✅ 95% | 21 | ~1,500 |
-| Phase 5: 文档 + Release | ✅ 90% | - | ~2,500 |
-| **总计** | **~97%** | **288+** | **~13,000+** |
+### 3.5 Decoupled BioML route for biological-domain consistency
 
-### 5.2 各模块测试覆盖情况
+The major algorithmic evolution is the BioML route:
 
-| 模块 | 测试数 | 代码覆盖率 |
-|------|--------|-----------|
-| `core/` | 35 | 33% |
-| `io/` | 14 | 28% |
-| `spatial/neighbors.py` | 19 | 88% |
-| `calling/spatial_validator.py` | 12 | 80% |
-| `calling/quality_filter.py` | 18 | 96% |
-| `imputation/gp_imputer.py` | 20 | 87% |
-| `imputation/sparse_gp.py` | 20 | 99% |
-| `quantification/apa_indices.py` | 30 | 94% |
-| `quantification/qc_metrics.py` | 31 | 89% |
-| `analysis/` | 61 | TBD |
-| `visualization/` | 21 | TBD |
-| `benchmark/` | 21 | TBD |
+- CPU-only.
+- No GPU requirement.
+- No deep learning dependency.
+- Multi-view graph construction from:
+  - spatial coordinates
+  - expression matrix
+  - APA usage matrix
+- Graph-regularized factor/domain recovery.
 
-### 5.3 已完成的示例脚本（10 个）
+The conceptual shift is:
 
-1. `01_scapatrap_usage.py` — scAPAtrap 包装器使用
-2. `02_spatial_validation.py` — 空间验证示例
-3. `03_gp_imputation.py` — GP 插补（含可视化）
-4. `04_apa_quantification.py` — APA 定量 + QC
-5. `05_differential_analysis.py` — 差异 APA 分析
-6. `06_spatial_patterns.py` — 空间模式识别
-7. `07_gp_svapa_detection.py` — GP SVAPA 检测
-8. `08_complete_pipeline.py` — 完整流
+- GP is responsible for APA value recovery and uncertainty.
+- BioML graph learning is responsible for biological-domain consistency.
+
+This decoupling is currently the most defensible route toward comprehensive performance across RMSE, layer/domain ARI/NMI, and runtime.
+
+### 3.6 High-resolution spatial transcriptomics support
+
+spaGAPA includes a high-resolution route designed for sparse pseudo-bin or high-resolution spatial data:
+
+- `highres_accuracy`
+- `highres_fast`
+- `auto` preset dispatch
+- pseudo-bin benchmark suites
+- multiscale and graph-based domain handling
+
+The current high-resolution candidate default is:
+
+- `gp_blend = 0.1`
+- graph weight `spatial = 0.1`
+- graph weight `expression = 0.7`
+- graph weight `apa = 0.2`
+
+The goal is to make spaGAPA useful not only for classic Visium-scale data, but also for emerging platforms such as Stereo-seq and Visium HD where appropriate APA evidence exists.
+
+Important technical caveat:
+
+- Visium HD FFPE/probe-based data are not automatically suitable for primary APA/PAS calling.
+- Stereo-seq and poly(A)-compatible high-resolution data are more promising for true high-resolution APA discovery.
 
 ---
 
-## 6. 未完成 / 不足之处
+## 4. Package Architecture
 
-### 6.1 关键未完成项
+Current main modules:
 
-| 项目 | 优先级 | 状态 | 影响 |
-|------|--------|------|------|
-| **真实数据 Benchmark** | 🔴 P0 | 脚本就绪，等待数据 | 没有真实数据验证，无法与 stAPAminer 结果直接对比 |
-| **Git 初始化** | 🟡 P1 | 未执行 | 无法追踪代码变更历史 |
-| **CLI 命令行接口** | 🟡 P1 | 延后 v1.1 | 目前仅支持 Python API |
-| **代码规范检查** | 🟡 P1 | 未执行 | flake8/black/mypy 未运行 |
-| **PyPI 发布** | 🟠 P2 | 延后（等真实数据） | 仅本地安装可用 |
-| **Sphinx API 文档** | 🟠 P2 | 延后 v1.1 | 仅有 docstrings + README |
-| **交互式可视化 (Plotly)** | 🟠 P2 | 延后 v1.1 | 仅有 matplotlib 静态图 |
-| **Jupyter 教程** | 🟠 P2 | 未开始 | 仅有 10 个 .py 示例脚本 |
+| Module | Role |
+|--------|------|
+| `spagapa.core` | APA dataset and APA site data structures |
+| `spagapa.io` | BAM, coordinate, matrix, and result I/O |
+| `spagapa.spatial` | spatial graph construction |
+| `spagapa.calling` | spatial validation and quality filtering |
+| `spagapa.imputation` | GP, sparse GP, fast GP, expression GP prototypes |
+| `spagapa.quantification` | RUD, PDUI, WUL, PAI, QC |
+| `spagapa.analysis` | differential APA, domain detection, SVAPA |
+| `spagapa.visualization` | spatial/statistical/QC plots |
+| `spagapa.benchmark` | simulation and real benchmark infrastructure |
+| `spagapa.bioml` | CPU-friendly multi-view graph/domain route |
+| `spagapa.pipeline` | end-to-end workflow |
+| `spagapa.cli` | command-line interface |
+| `spagapa.presets` | analysis preset definitions |
 
-### 6.2 功能模块缺陷
+User-facing presets:
 
-| 问题 | 说明 |
-|------|------|
-| **`preprocessing/` 空模块** | 批次效应校正、数据标准化等预处理功能未实现 |
-| **`utils/` 空模块** | 通用工具函数缺失 |
-| **integrative tests 空** | 仅有单元测试，缺少端到端集成测试 |
-| **轨迹分析已实现但标注 deferred** | `analysis/trajectory.py` 有 444 行代码和测试文件，但 tasks.md 标注为 deferred |
-| **IO 模块覆盖率仅 28%** | readers/writers 测试薄弱，可能隐藏 bug |
-| **core 模块覆盖率仅 33%** | 核心数据模型测试覆盖不足 |
-
-### 6.3 方法论局限性
-
-1. **APA Calling 依赖 scAPAtrap**：v1.0 策略中 APA 位点识别核心仍依赖 R 包，空间验证是增量改进而非独立 calling
-2. **GP 在大规模数据上的计算瓶颈**：虽然有稀疏 GP 近似，但 10,000+ spots 的完整 GP 仍然不可行
-3. **无 GPU 加速**：当前仅支持 CPU 并行（multiprocessing），未使用 CuPy/JAX
-4. **APADataset 与真实 AnnData 对象的集成不深**：pipeline.py 中有多处 `hasattr` 检查和 `try/except`，说明接口不够统一
-5. **单物种支持**：当前主要针对小鼠（mm10），其他物种需要额外适配
-6. **无多模态整合**：不支持组织学图像叠加分析
+| Preset | Intended use |
+|--------|--------------|
+| `auto` | default; dispatch based on matrix size/sparsity |
+| `standard` | conventional low/moderate-resolution spatial transcriptomics |
+| `highres_accuracy` | high-resolution route prioritizing domain stability and RMSE |
+| `highres_fast` | high-resolution route prioritizing speed |
 
 ---
 
-## 7. 后续开发建议
+## 5. Competitor and Reference Tools
 
-### 7.1 优先级排序
+The main reference packages are:
 
-**P0 — 论文必需（立即开始）**：
-1. 下载并处理 MOB/Brain/Embryo 真实数据
-2. 运行 `scripts/run_real_benchmark.py` 生成与 stAPAminer 的对比结果
-3. 补充下游任务对比（ARI + F1）和消融实验
+- `scAPAtrap`
+- `stAPAminer`
+- `metaAPA`
 
-**P1 — 质量提升（1-2 周）**：
-1. `git init` + 首次 commit
-2. 运行 flake8/black/mypy 规范代码
-3. 补充 io/core 模块测试，提高覆盖率
-4. 编写集成测试（完整 pipeline 端到端）
+### 5.1 scAPAtrap
 
-**P2 — 论文增色（有精力时）**：
-1. 实现缺失的 preprocessing（批次校正等）
-2. Plotly 交互式可视化
-3. CLI 命令行接口
-4. Jupyter 教程
+Role:
 
-**P3 — 发布**：
-1. PyPI 打包发布
-2. GitHub release + release notes
-3. Sphinx 文档
+- Strong APA/PAS calling front end from BAM.
+- Used by spaGAPA as one major route for real APA evidence generation.
 
-### 7.2 论文发表前必须达成的里程碑
+Limitations relative to spaGAPA:
 
-- [ ] 在 MOB 数据集上复现 stAPAminer 结果
-- [ ] GP 插补 RMSE 显著优于 KNN（p < 0.05）
-- [ ] SVAPA 检测：spaGAPA 比 stAPAminer 多发现至少 10% 的 SVAPA 基因
-- [ ] 不确定性量化证明其价值（高不确定性区 = 需实验验证区）
-- [ ] 至少 2 个数据集的交叉验证
+- Not designed as a spatial APA analysis framework.
+- Does not provide spaGAPA's spatial validation, GP uncertainty, BioML domain route, or high-resolution benchmark framework.
 
----
+### 5.2 stAPAminer
 
-## 8. 技术统计汇总
+Role:
 
-| 指标 | 数值 |
-|------|------|
-| 源代码文件 | 34 个 .py |
-| 源代码总行数 | ~11,200 |
-| 测试文件 | 17 个 |
-| 单元测试数 | 288+ |
-| 测试通过率 | 100% |
-| 整体代码覆盖率 | ~53%（核心模块 80-99%） |
-| 示例脚本 | 10 个 |
-| 已实现 API 类 | 30+ |
-| 支持的数据格式 | BAM, BED, CSV, TSV, H5AD, HDF5, JSON |
-| Python 版本 | 3.10 |
+- Primary spatial APA competitor.
+- Uses expression-neighborhood/KNN-like logic for APA imputation and spatial analysis.
 
----
+Strength:
 
-## 9. 核心创新总结
+- Expression-informed neighborhood structure can produce strong biological-domain consistency.
+- Runtime can be faster than GP-heavy methods.
 
-spaGAPA 的核心竞争力可概括为一个**方法学创新链条**：
+Limitations:
 
-```
-数据输入
-  ↓
-空间验证（创新 1：降低噪声假阳性）
-  ↓
-GP 插补 + 不确定性量化（创新 2：最核心）
-  ↓
-不确定性加权 SVAPA 检测（创新 3：GP 似然比检验）
-  ↓
-多尺度空间模式分析（创新 4）
-  ↓
-生物学发现
-```
+- No GP posterior uncertainty.
+- KNN imputation has limited calibration.
+- Less explicit separation between APA value recovery and biological-domain discovery.
+- Benchmark and high-resolution scalability are less systematic.
 
-**三大关键差异化卖点**：
-1. **GP 插补**：明确建模空间协方差，优于简单 KNN
-2. **不确定性量化**：每个预测都有置信区间，竞品完全没有
-3. **GP 似然比检验**：基于贝叶斯模型选择的 SVAPA 检测，有严格理论保证
+spaGAPA response:
+
+- Do not try to beat stAPAminer-like KNN on every domain metric using GP alone.
+- Use GP where GP is strongest.
+- Use BioML graph route for biological consistency.
+
+### 5.3 metaAPA
+
+Role:
+
+- Workflow-oriented APA/meta-analysis framework.
+
+Relationship to spaGAPA:
+
+- More complementary than directly competitive.
+- spaGAPA focuses on spatial APA validation, imputation, uncertainty, domains, and high-resolution spatial benchmarking.
 
 ---
 
-## 附录A：参考/竞品源代码位置
+## 6. Benchmark Status
 
-| 包 | 路径 |
-|----|------|
-| scAPAtrap | `00_ref_packages/scAPAtrap-master/` |
-| stAPAminer | `00_ref_packages/stAPAminer-main/` |
-| metaAPA | `00_ref_packages/metaAPA-master/` |
+### 6.1 Simulation and MOB/layer-like benchmarks
 
-## 附录B：设计文档位置
+Completed:
 
-| 文档 | 路径 |
-|------|------|
-| 需求文档 | `.kiro/specs/spagapa/requirements.md` |
-| 设计文档 | `.kiro/specs/spagapa/design.md` |
-| 任务文档 | `.kiro/specs/spagapa/tasks.md` |
-| 开发进度 | `PROGRESS.md` |
+- Spatial dropout masks.
+- Random masks.
+- Spatial block masks.
+- Ring/sector masks.
+- Layer-aware masks.
+- Multi-seed benchmark.
+- Runtime and memory tracking.
+- Biological consistency metrics:
+  - ARI
+  - NMI
+- Uncertainty metrics:
+  - interval coverage
+  - uncertainty-error correlation
+  - uncertainty-filtered accuracy
+
+Main conclusion:
+
+- GP is strong for APA value recovery and uncertainty.
+- Biological-domain recovery requires graph/expression-aware structure.
+- Decoupling value recovery and domain recovery is necessary.
+
+### 6.2 Expression GP sweeps
+
+Completed:
+
+- spatial GP
+- additive expression GP
+- product kernel GP
+- adaptive GP
+- layer-local GP
+
+Main conclusion:
+
+- Expression GP is not robust enough to be the central method.
+- These experiments are still useful as ablation evidence.
+
+### 6.3 High-resolution benchmark
+
+Completed:
+
+- pseudo-bin generation
+- 2x/4x/8x tests
+- multi-seed smoke suites
+- `highres_accuracy`
+- `highres_fast`
+- BioML decoupled route
+
+Representative result pattern:
+
+- `highres_fast` substantially improves runtime.
+- `highres_accuracy` preserves better value recovery.
+- BioML graph route improves or stabilizes biological-domain metrics in selected high-resolution settings.
+
+### 6.4 Real-data benchmark
+
+Completed:
+
+- GSE179572/GSM5420751 real Space Ranger + scAPAtrap dataset.
+- GSE183456/GSM6047774 real Space Ranger + scAPAtrap dataset.
+- GSE179572 high-resolution smoke.
+- GSE179572 external validation smoke.
+
+In progress:
+
+- GSE237183 multi-sample Space Ranger processing.
+- GSE220442 SRA split and Space Ranger route.
+- Additional brain/high-resolution candidates.
+
+---
+
+## 7. Real Dataset Status
+
+### 7.1 GSE179572 / GSM5420751
+
+Status:
+
+- Space Ranger completed.
+- BAM barcode/UMI tags verified.
+- scAPAtrap completed.
+- Expression matrix exported.
+- Processed dataset available.
+
+Use:
+
+- First real-data benchmark.
+- High-resolution smoke validation.
+- External validation smoke.
+- Marker weak-label exploration.
+
+Current limitation:
+
+- No expert pathology ROI label yet.
+
+### 7.2 GSE183456 / GSM6047774
+
+Status:
+
+- Space Ranger completed.
+- scAPAtrap completed.
+- Processed dataset available.
+
+Use:
+
+- Strong candidate for biological-domain benchmark.
+- Potentially better than GSE179572 for domain label construction.
+
+### 7.3 GSE237183
+
+Status:
+
+- FASTQ complete.
+- Dry-runs passed.
+- Space Ranger formal counts submitted.
+- Most completed samples pass; one observed failure is image/fiducial alignment-related.
+
+Use:
+
+- Brain/Visium candidate for multi-real-data benchmark.
+
+### 7.4 GSE220442
+
+Status:
+
+- Non-standard SRA technical read structure decoded.
+- Correct read mapping found.
+- Pilot Space Ranger dry-run completed.
+- Full suite processing started.
+
+Use:
+
+- Important brain dataset candidate.
+- Demonstrates spaGAPA workflow can handle complicated SRA formats.
+
+### 7.5 High-resolution candidate search
+
+Candidate documents:
+
+- `docs/highres_st_geo_candidates.md`
+- `docs/stereo_visiumhd_geo_candidates.md`
+
+Priority:
+
+- Stereo-seq first for true APA raw-read evidence.
+- Visium HD for high-resolution expression/domain validation, with APA chemistry caveat.
+
+---
+
+## 8. Current Strengths
+
+spaGAPA currently has several credible strengths for a BIB-level package/method paper:
+
+1. Clear biological problem: spatial APA remodeling.
+2. Statistical angle: sparse, uncertain, spatially structured APA usage.
+3. Methodological components:
+   - spatial validation
+   - GP imputation
+   - posterior uncertainty
+   - BioML graph domain route
+4. CPU-only design:
+   - no GPU dependency
+   - no deep learning requirement
+5. Reproducible benchmark framework.
+6. Real-data processing path from Space Ranger BAM to APA matrix.
+7. Active high-resolution strategy.
+8. Honest ablation story: expression-informed GP was tested and not overclaimed.
+
+---
+
+## 9. Current Weaknesses
+
+The project is not yet manuscript-complete. Remaining weaknesses are:
+
+1. Biological gold-standard labels are still limited.
+2. GP runtime can be slower than KNN baselines.
+3. Domain ARI/NMI is not always superior unless the BioML route is used.
+4. Real-data benchmarks are still being expanded.
+5. High-resolution APA evidence requires careful dataset selection.
+6. Some real datasets have difficult image alignment or SRA read structures.
+7. Documentation still needs to be consolidated around current presets and workflows.
+
+These are solvable, but they must be handled before submission.
+
+---
+
+## 10. Publication Strategy
+
+### 10.1 BIB positioning
+
+The strongest BIB framing is:
+
+- spaGAPA is a reproducible spatial APA analysis framework.
+- It is not only an implementation of one model.
+- It systematically evaluates APA recovery, uncertainty, biological consistency, and scalability.
+- It is CPU-friendly and accessible to ordinary bioinformatics labs.
+- It includes real spatial transcriptomics workflows and high-resolution readiness.
+
+### 10.2 What not to claim
+
+Avoid claims such as:
+
+- "GP alone fully solves biological domain recovery."
+- "spaGAPA beats every competitor on every metric."
+- "Visium HD automatically supports APA calling."
+- "Weak labels are pathology gold standards."
+
+### 10.3 What to claim if supported by final benchmark
+
+Defensible claims:
+
+- spaGAPA improves or matches APA value recovery in real spatial data.
+- spaGAPA provides calibrated uncertainty unavailable in KNN-only tools.
+- BioML graph route improves biological-domain consistency in sparse/high-resolution settings.
+- High-resolution presets provide an accuracy/speed tradeoff without GPU dependency.
+- The package provides a reproducible benchmark and real-data pipeline for spatial APA analysis.
+
+---
+
+## 11. Roadmap
+
+### Short term
+
+1. Finish GSE220442 Space Ranger processing.
+2. Decide repair/skip strategy for failed GSE237183 sample.
+3. Run scAPAtrap on additional GSE237183/GSE220442 BAMs.
+4. Build formal processed datasets.
+5. Run multi-real-data benchmark.
+6. Produce benchmark visualizations.
+
+### Medium term
+
+1. Build marker-defined and ROI/domain labels.
+2. Add one high-resolution raw-read dataset, preferably Stereo-seq.
+3. Add robust runtime/memory scaling figure.
+4. Consolidate CLI tutorials.
+5. Prepare manuscript figure panels.
+
+### Submission-ready target
+
+Minimum evidence for BIB:
+
+- Two or more real spatial APA datasets.
+- One convincing biological-domain validation.
+- One high-resolution or pseudo-high-resolution validation.
+- Clear uncertainty calibration figure.
+- Runtime and scalability figure.
+- Reproducible code/data manifest.
+
+---
+
+## 12. Final Project Direction
+
+The current best direction is:
+
+> Build spaGAPA as a CPU-friendly, uncertainty-aware, benchmark-driven spatial APA framework where GP handles APA recovery and uncertainty, while BioML graph learning handles biological-domain consistency.
+
+This direction is technically coherent, defensible to reviewers, and aligned with the user's constraint of avoiding deep learning/GPU dependence.
