@@ -273,8 +273,7 @@ def run_fimo() -> tuple[float, str]:
                 pass
     cmd = [
         FIMO,
-        "--parse-genomic",            # interpret |chr:start-end(strand) headers as coords
-        "--pv-thresh", PVALUE_THRESH,
+        "--thresh", PVALUE_THRESH,    # p-value threshold (this FIMO build uses --thresh, not --pv-thresh)
         "--max-strand",               # report each hit once
         "--oc", FIMO_OUT,
         MOTIF_DB,

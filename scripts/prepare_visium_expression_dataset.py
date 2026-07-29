@@ -25,7 +25,7 @@ def read_expression_csv(path: Path, orientation: str) -> pd.DataFrame:
     return df
 
 
-def read_visium_h5(path: Path) -> pd.DataFrame:
+def read_visium_h5_sparse(path: Path):
     try:
         import h5py
         from scipy import sparse
@@ -46,12 +46,69 @@ def read_visium_h5(path: Path) -> pd.DataFrame:
         barcodes = [x.decode() if isinstance(x, bytes) else str(x) for x in matrix_group["barcodes"][:]]
         names = matrix_group["features/name"][:]
         genes = [x.decode() if isinstance(x, bytes) else str(x) for x in names]
+        ids = matrix_group["features/id"][:]
+        feature_ids = [x.decode() if isinstance(x, bytes) else str(x) for x in ids]
 
-    return pd.DataFrame(
+    unique_genes = make_unique_names(genes, feature_ids)
+    return matrix.tocsr(), barcodes, unique_genes, genes, feature_ids
+
+
+def sparse_row_variance(matrix) -> np.ndarray:
+    mean = np.asarray(matrix.mean(axis=1)).ravel()
+    mean_sq = np.asarray(matrix.multiply(matrix).mean(axis=1)).ravel()
+    return mean_sq - mean**2
+
+
+def expression_from_visium_h5(
+    path: Path,
+    shared_spots: list[str],
+    n_top_genes: int | None,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int]]:
+    matrix, barcodes, unique_genes, genes, feature_ids = read_visium_h5_sparse(path)
+    barcode_to_idx = {barcode: idx for idx, barcode in enumerate(barcodes)}
+    spot_indices = [barcode_to_idx[spot] for spot in shared_spots]
+    matrix = matrix[:, spot_indices]
+
+    if n_top_genes is not None and n_top_genes > 0 and matrix.shape[0] > n_top_genes:
+        variances = sparse_row_variance(matrix)
+        gene_indices = np.argsort(variances)[::-1][:n_top_genes]
+        gene_indices = np.sort(gene_indices)
+        matrix = matrix[gene_indices, :]
+    else:
+        gene_indices = np.arange(matrix.shape[0])
+
+    selected_genes = [unique_genes[i] for i in gene_indices]
+    expression = pd.DataFrame(
         matrix.toarray(),
-        index=pd.Index(genes, dtype=str),
-        columns=pd.Index(barcodes, dtype=str),
+        index=pd.Index(selected_genes, dtype=str),
+        columns=pd.Index(shared_spots, dtype=str),
     )
+    gene_meta = pd.DataFrame(
+        {
+            "gene": selected_genes,
+            "gene_symbol": [genes[i] for i in gene_indices],
+            "feature_id": [feature_ids[i] for i in gene_indices],
+        }
+    )
+    qc = {
+        "n_expression_genes_total": len(unique_genes),
+        "n_expression_duplicate_gene_symbols": int(pd.Series(genes).duplicated().sum()),
+    }
+    return expression, gene_meta, qc
+
+
+def make_unique_names(names: list[str], feature_ids: list[str]) -> list[str]:
+    """Return stable unique gene labels while preserving common symbols."""
+    seen: dict[str, int] = {}
+    unique: list[str] = []
+    for name, feature_id in zip(names, feature_ids):
+        if name not in seen:
+            seen[name] = 1
+            unique.append(name)
+        else:
+            seen[name] += 1
+            unique.append(f"{name}|{feature_id}")
+    return unique
 
 
 def read_visium_coordinates(spatial_dir: Path) -> pd.DataFrame:
@@ -105,6 +162,18 @@ def select_top_variable_genes(expression: pd.DataFrame, n_genes: int | None) -> 
     return expression.loc[genes]
 
 
+def read_visium_h5_barcodes(path: Path) -> list[str]:
+    try:
+        import h5py
+    except ImportError as exc:  # pragma: no cover - dependency guard
+        raise ImportError("h5py is required to read 10x H5 files") from exc
+    with h5py.File(path, "r") as handle:
+        return [
+            x.decode() if isinstance(x, bytes) else str(x)
+            for x in handle["matrix/barcodes"][:]
+        ]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--visium-dir", default=None, help="Directory containing filtered_feature_bc_matrix.h5 and spatial/")
@@ -137,22 +206,42 @@ def main() -> None:
     if spatial_dir is None:
         raise ValueError("Provide --visium-dir or --spatial-dir")
 
-    if expression_csv is not None:
-        expression = read_expression_csv(expression_csv, args.expression_orientation)
-    else:
-        expression = read_visium_h5(expression_h5)
     coords = read_visium_coordinates(spatial_dir)
 
-    shared_spots = [spot for spot in coords["spot_id"].astype(str) if spot in expression.columns]
-    if not shared_spots:
-        raise ValueError("No shared spots between expression matrix and spatial coordinates")
-    expression = expression.loc[:, shared_spots]
-    expression = select_top_variable_genes(expression, args.top_variable_genes)
+    if expression_csv is not None:
+        expression = read_expression_csv(expression_csv, args.expression_orientation)
+        shared_spots = [spot for spot in coords["spot_id"].astype(str) if spot in expression.columns]
+        if not shared_spots:
+            raise ValueError("No shared spots between expression matrix and spatial coordinates")
+        expression = expression.loc[:, shared_spots]
+        expression = select_top_variable_genes(expression, args.top_variable_genes)
+        gene_meta = pd.DataFrame(
+            {
+                "gene": expression.index.astype(str),
+                "gene_symbol": expression.index.astype(str),
+                "feature_id": "",
+            }
+        )
+        expression_qc = {
+            "n_expression_genes_total": int(expression.shape[0]),
+            "n_expression_duplicate_gene_symbols": 0,
+        }
+    else:
+        barcodes = set(read_visium_h5_barcodes(expression_h5))
+        shared_spots = [spot for spot in coords["spot_id"].astype(str) if spot in barcodes]
+        if not shared_spots:
+            raise ValueError("No shared spots between expression matrix and spatial coordinates")
+        expression, gene_meta, expression_qc = expression_from_visium_h5(
+            expression_h5,
+            shared_spots,
+            args.top_variable_genes,
+        )
     coords = coords.set_index("spot_id").loc[shared_spots].reset_index()
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     expression.to_csv(output_dir / "expression_matrix.csv")
+    gene_meta.to_csv(output_dir / "expression_genes.csv", index=False)
     coords.to_csv(output_dir / "coordinates.csv", index=False)
 
     metadata = pd.DataFrame(
@@ -182,14 +271,18 @@ def main() -> None:
         "site_level_ready": False,
         "n_spots": int(expression.shape[1]),
         "n_expression_genes": int(expression.shape[0]),
+        "n_expression_genes_total": int(expression_qc["n_expression_genes_total"]),
+        "n_expression_duplicate_gene_symbols": int(expression_qc["n_expression_duplicate_gene_symbols"]),
         "files": {
             "expression_matrix": "expression_matrix.csv",
+            "expression_genes": "expression_genes.csv",
             "coordinates": "coordinates.csv",
             "metadata": "metadata.csv",
         },
         "notes": [
             "No apa_matrix.csv was generated.",
             "Do not count this dataset as a true APA benchmark until APA/PAS calls are added.",
+            "Duplicate Space Ranger gene symbols were made unique as gene|feature_id; original symbols are stored in expression_genes.csv.",
         ],
     }
     (output_dir / "qc_summary.json").write_text(json.dumps(qc, indent=2))

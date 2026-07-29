@@ -43,7 +43,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import psutil
+from scipy.spatial.distance import pdist
 from scipy.stats import pearsonr, spearmanr
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import Matern, RBF, WhiteKernel, ConstantKernel as C
 from sklearn.cluster import KMeans
 from sklearn.metrics import (
     adjusted_rand_score,
@@ -103,6 +106,8 @@ class MethodResult:
 
 METHOD_ORDER = [
     "spagapa_gp",
+    "spagapa_fast_gp",
+    "spagapa_gp_bioml_domains",
     "spagapa_bioml",
     "stapaminer_knn_expression",
     "knn_spatial",
@@ -112,6 +117,8 @@ METHOD_ORDER = [
 
 METHOD_COLORS = {
     "spagapa_gp": "#e74c3c",
+    "spagapa_fast_gp": "#f39c12",
+    "spagapa_gp_bioml_domains": "#c0392b",
     "spagapa_bioml": "#d35400",
     "stapaminer_knn_expression": "#8e44ad",
     "knn_spatial": "#3498db",
@@ -236,6 +243,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--n-domains", type=int, default=5)
     parser.add_argument(
+        "--layer-column",
+        default="layer",
+        help="Metadata column used for biological consistency and layer-aware masks.",
+    )
+    parser.add_argument(
         "--mask-types",
         default="random,spatial_block,spatial_block_large,ring_sector,layer_aware,low_coverage",
         help="Comma-separated mask types.",
@@ -250,6 +262,34 @@ def parse_args() -> argparse.Namespace:
         "--include-bioml",
         action="store_true",
         help="Include spaGAPA BioML two-stage GP + graph-factorization method.",
+    )
+    parser.add_argument(
+        "--include-fast-gp",
+        action="store_true",
+        help="Include spaGAPA fast GP approximation with subsampled training spots.",
+    )
+    parser.add_argument(
+        "--fast-gp-max-train-points",
+        type=int,
+        default=0,
+        help="Maximum observed spots per feature used to fit fast GP. Set <=0 to use all observed spots.",
+    )
+    parser.add_argument(
+        "--fast-gp-n-jobs",
+        type=int,
+        default=8,
+        help="Number of CPU workers for fast GP. Use 1 to disable parallelism.",
+    )
+    parser.add_argument(
+        "--fast-gp-n-restarts",
+        type=int,
+        default=1,
+        help="Number of optimizer restarts for fast GP. Default matches the standard benchmark GP.",
+    )
+    parser.add_argument(
+        "--include-gp-bioml-domains",
+        action="store_true",
+        help="Include GP imputation with BioML graph domains but without BioML value blending.",
     )
     parser.add_argument("--bioml-rank", type=int, default=8)
     parser.add_argument("--bioml-lambda-graph", type=float, default=0.5)
@@ -629,6 +669,141 @@ def impute_spagapa_gp(train: np.ndarray, coords: np.ndarray, kernel: str, alpha:
     return np.clip(imputed, 0.0, 1.0), uncertainty
 
 
+def _stratified_spatial_subset(
+    coords: np.ndarray,
+    candidate_idx: np.ndarray,
+    max_points: int,
+    seed: int,
+) -> np.ndarray:
+    """Select a deterministic spatially distributed subset of observed spots."""
+    if len(candidate_idx) <= max_points:
+        return candidate_idx
+
+    rng = np.random.default_rng(seed)
+    selected: list[int] = []
+    xy = coords[candidate_idx]
+    n_bins = max(2, int(np.sqrt(max_points / 2)))
+    x_edges = np.linspace(float(xy[:, 0].min()), float(xy[:, 0].max()), n_bins + 1)
+    y_edges = np.linspace(float(xy[:, 1].min()), float(xy[:, 1].max()), n_bins + 1)
+    x_bin = np.clip(np.digitize(xy[:, 0], x_edges[1:-1], right=False), 0, n_bins - 1)
+    y_bin = np.clip(np.digitize(xy[:, 1], y_edges[1:-1], right=False), 0, n_bins - 1)
+    bins = x_bin * n_bins + y_bin
+    unique_bins = np.unique(bins)
+    per_bin = max(1, max_points // max(1, len(unique_bins)))
+
+    for bin_id in unique_bins:
+        members = candidate_idx[bins == bin_id]
+        if len(members) <= per_bin:
+            selected.extend(members.tolist())
+        else:
+            selected.extend(rng.choice(members, size=per_bin, replace=False).tolist())
+
+    selected_arr = np.asarray(selected, dtype=int)
+    if len(selected_arr) < max_points:
+        remaining = np.setdiff1d(candidate_idx, selected_arr, assume_unique=False)
+        if len(remaining) > 0:
+            extra = rng.choice(
+                remaining,
+                size=min(max_points - len(selected_arr), len(remaining)),
+                replace=False,
+            )
+            selected_arr = np.concatenate([selected_arr, extra.astype(int)])
+    elif len(selected_arr) > max_points:
+        selected_arr = rng.choice(selected_arr, size=max_points, replace=False).astype(int)
+
+    return np.sort(selected_arr)
+
+
+def _fast_gp_kernel(coords_subset: np.ndarray, kernel: str, alpha: float):
+    if len(coords_subset) > 1:
+        distances = pdist(coords_subset)
+        positive = distances[distances > 0]
+        length_scale = float(np.median(positive)) if positive.size else 1.0
+    else:
+        length_scale = 1.0
+    length_scale = max(length_scale, 1e-6)
+    if kernel == "rbf":
+        base = RBF(length_scale=length_scale, length_scale_bounds=(1e-2, 1e2))
+    else:
+        base = Matern(length_scale=length_scale, length_scale_bounds=(1e-2, 1e2), nu=1.5)
+    return C(1.0, constant_value_bounds=(1e-3, 1e3)) * base + WhiteKernel(
+        noise_level=max(float(alpha), 1e-10),
+        noise_level_bounds="fixed",
+    )
+
+
+def impute_spagapa_fast_gp(
+    train: np.ndarray,
+    coords: np.ndarray,
+    kernel: str,
+    alpha: float,
+    max_train_points: int,
+    n_jobs: int,
+    n_restarts_optimizer: int,
+    seed: int,
+):
+    if max_train_points <= 0:
+        imputer = GPImputer(
+            kernel_type=kernel,
+            alpha=alpha,
+            n_restarts_optimizer=n_restarts_optimizer,
+        )
+        batch = imputer.fit_batch(
+            coords,
+            np.nan_to_num(train, nan=0.0),
+            mask=np.isfinite(train),
+            n_jobs=n_jobs,
+            verbose=False,
+        )
+        imputed, uncertainty = batch.impute(return_uncertainty=True)
+        return np.clip(imputed, 0.0, 1.0), uncertainty
+
+    values = np.asarray(train, dtype=float)
+    mask = np.isfinite(values)
+    imputed = np.zeros_like(values, dtype=float)
+    uncertainty = np.zeros_like(values, dtype=float)
+    gene_means = safe_row_nanmean(values)
+
+    for gene_idx in range(values.shape[0]):
+        observed_idx = np.where(mask[gene_idx])[0]
+        if len(observed_idx) < 3:
+            imputed[gene_idx, :] = gene_means[gene_idx]
+            uncertainty[gene_idx, :] = 1.0
+            imputed[gene_idx, observed_idx] = values[gene_idx, observed_idx]
+            uncertainty[gene_idx, observed_idx] = 0.0
+            continue
+
+        subset_idx = _stratified_spatial_subset(
+            coords,
+            observed_idx,
+            max_points=max(3, int(max_train_points)),
+            seed=seed + gene_idx * 1009,
+        )
+        train_coords = coords[subset_idx]
+        train_values = values[gene_idx, subset_idx]
+
+        try:
+            gp = GaussianProcessRegressor(
+                kernel=_fast_gp_kernel(train_coords, kernel, alpha),
+                alpha=max(float(alpha), 1e-10),
+                n_restarts_optimizer=n_restarts_optimizer,
+                normalize_y=True,
+                random_state=42,
+            )
+            gp.fit(train_coords, train_values)
+            pred, std = gp.predict(coords, return_std=True)
+        except Exception:
+            pred = np.full(values.shape[1], gene_means[gene_idx], dtype=float)
+            std = np.full(values.shape[1], 1.0, dtype=float)
+
+        pred[observed_idx] = values[gene_idx, observed_idx]
+        std[observed_idx] = 0.0
+        imputed[gene_idx, :] = pred
+        uncertainty[gene_idx, :] = std
+
+    return np.clip(imputed, 0.0, 1.0), uncertainty
+
+
 def confidence_from_uncertainty(uncertainty: np.ndarray | None, mask: np.ndarray) -> np.ndarray | None:
     if uncertainty is None:
         return None
@@ -711,6 +886,57 @@ def impute_spagapa_bioml(
         ).fit_predict(spot_factors=bioml.spot_factors_)
 
     return np.clip(blended, 0.0, 1.0), gp_uncertainty, domain_labels
+
+
+def impute_spagapa_gp_bioml_domains(
+    train: np.ndarray,
+    coords: np.ndarray,
+    expression_embedding: np.ndarray | None,
+    kernel: str,
+    alpha: float,
+    n_neighbors: int,
+    domain_method: str,
+    n_domains: int,
+    spatial_weight: float,
+    expression_weight: float,
+    apa_weight: float,
+):
+    gp_imputed, gp_uncertainty = impute_spagapa_gp(train, coords, kernel, alpha)
+    graph = MultiViewGraphBuilder(
+        n_neighbors=n_neighbors,
+        spatial_weight=spatial_weight,
+        expression_weight=expression_weight,
+        apa_weight=apa_weight,
+    ).build(
+        coords,
+        expression_embedding=expression_embedding,
+        apa_matrix=gp_imputed,
+        uncertainty=gp_uncertainty,
+    )
+
+    if domain_method == "spectral":
+        domain_labels = BioMLDomainDetector(
+            method="spectral",
+            n_domains=n_domains,
+            random_state=42,
+        ).fit_predict(graph=graph.fused)
+    else:
+        spot_features = np.column_stack(
+            [
+                StandardScaler().fit_transform(coords),
+                expression_embedding
+                if expression_embedding is not None
+                else np.zeros((coords.shape[0], 0), dtype=float),
+                fill_missing_by_gene_mean(gp_imputed).T,
+            ]
+        )
+        domain_labels = BioMLDomainDetector(
+            method="kmeans",
+            n_domains=n_domains,
+            random_state=42,
+        ).fit_predict(spot_factors=spot_features)
+
+    return np.clip(gp_imputed, 0.0, 1.0), gp_uncertainty, domain_labels
 
 
 def impute_spagapa_gp_variant(
@@ -1505,10 +1731,18 @@ def main() -> None:
     coords = coords_df[["x", "y"]].values.astype(float)
     gene_names = apa.index.astype(str).tolist()
     spot_names = apa.columns.astype(str).tolist()
-    layer_labels = metadata.loc[spot_names, "layer"].astype(str).values
-    layer_codes = pd.Categorical(metadata.loc[spot_names, "layer"]).codes
+    if args.layer_column not in metadata.columns:
+        raise ValueError(
+            f"Metadata column '{args.layer_column}' is missing from {data_dir / 'metadata.csv'}"
+        )
+    layer_labels = metadata.loc[spot_names, args.layer_column].astype(str).values
+    layer_codes = pd.Categorical(metadata.loc[spot_names, args.layer_column]).codes
     expression_embedding = None
-    if args.include_bioml or args.gp_variant in {"expr_additive", "expr_product", "adaptive_additive", "expr_layer_local"}:
+    if (
+        args.include_bioml
+        or args.include_gp_bioml_domains
+        or args.gp_variant in {"expr_additive", "expr_product", "adaptive_additive", "expr_layer_local"}
+    ):
         expression_aligned = expression.reindex(columns=spot_names).fillna(0.0)
         expression_embedding = ExpressionFeatureBuilder(
             n_components=args.expr_n_components,
@@ -1570,6 +1804,31 @@ def main() -> None:
                     use_theta=args.gp_use_theta,
                 ),
             }
+            if args.include_fast_gp:
+                method_specs["spagapa_fast_gp"] = lambda train=train, seed=seed: impute_spagapa_fast_gp(
+                    train,
+                    coords,
+                    args.gp_kernel,
+                    args.gp_alpha,
+                    args.fast_gp_max_train_points,
+                    args.fast_gp_n_jobs,
+                    args.fast_gp_n_restarts,
+                    seed,
+                )
+            if args.include_gp_bioml_domains:
+                method_specs["spagapa_gp_bioml_domains"] = lambda train=train: impute_spagapa_gp_bioml_domains(
+                    train,
+                    coords,
+                    expression_embedding,
+                    args.gp_kernel,
+                    args.gp_alpha,
+                    n_neighbors=args.bioml_n_neighbors,
+                    domain_method=args.bioml_domain_method,
+                    n_domains=args.n_domains,
+                    spatial_weight=args.bioml_spatial_weight,
+                    expression_weight=args.bioml_expression_weight,
+                    apa_weight=args.bioml_apa_weight,
+                )
             if args.include_bioml:
                 method_specs["spagapa_bioml"] = lambda train=train: impute_spagapa_bioml(
                     train,
@@ -1591,12 +1850,27 @@ def main() -> None:
                 )
 
             for method_name, fn in method_specs.items():
-                is_spagapa_model = method_name in {"spagapa_gp", "spagapa_bioml"}
+                is_spagapa_model = method_name in {
+                    "spagapa_gp",
+                    "spagapa_fast_gp",
+                    "spagapa_gp_bioml_domains",
+                    "spagapa_bioml",
+                }
                 result, pred, uncertainty = measure_method(
                     method_name=method_name,
                     gp_kernel=args.gp_kernel if is_spagapa_model else "na",
                     gp_alpha=args.gp_alpha if is_spagapa_model else np.nan,
-                    gp_variant=args.gp_variant if method_name == "spagapa_gp" else "bioml" if method_name == "spagapa_bioml" else "na",
+                    gp_variant=(
+                        args.gp_variant
+                        if method_name == "spagapa_gp"
+                        else "fast_spatial"
+                        if method_name == "spagapa_fast_gp"
+                        else "gp_bioml_domains"
+                        if method_name == "spagapa_gp_bioml_domains"
+                        else "bioml"
+                        if method_name == "spagapa_bioml"
+                        else "na"
+                    ),
                     gp_lambda_expr=args.gp_lambda_expr if method_name == "spagapa_gp" else np.nan,
                     gp_product_offset=args.gp_product_offset if method_name == "spagapa_gp" else np.nan,
                     gp_gate_mode=args.gp_gate_mode if method_name == "spagapa_gp" else "na",
@@ -1720,6 +1994,7 @@ def main() -> None:
         "mask_fraction": float(args.mask_fraction),
         "seeds": seeds,
         "mask_types": mask_types,
+        "layer_column": str(args.layer_column),
         "methods": METHOD_ORDER,
         "gp_kernel": str(args.gp_kernel),
         "gp_alpha": float(args.gp_alpha),
@@ -1735,6 +2010,11 @@ def main() -> None:
         "expr_n_top_genes": int(args.expr_n_top_genes),
         "gp_use_theta": bool(args.gp_use_theta),
         "include_bioml": bool(args.include_bioml),
+        "include_fast_gp": bool(args.include_fast_gp),
+        "fast_gp_max_train_points": int(args.fast_gp_max_train_points),
+        "fast_gp_n_jobs": int(args.fast_gp_n_jobs),
+        "fast_gp_n_restarts": int(args.fast_gp_n_restarts),
+        "include_gp_bioml_domains": bool(args.include_gp_bioml_domains),
         "bioml_rank": int(args.bioml_rank),
         "bioml_lambda_graph": float(args.bioml_lambda_graph),
         "bioml_lambda_l2": float(args.bioml_lambda_l2),

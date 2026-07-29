@@ -242,21 +242,39 @@ def apply_linear_preserve(mat, batch, preserve):
 
 
 def apply_harmony(mat, batch):
-    """Harmony on cells (spots) x features (genes). NaN -> 0 after gene std."""
+    """Harmony on cells (spots) x features (genes). NaN -> 0 after gene std.
+
+    harmonypy 2.0 requires ``sigma`` as a per-cluster array and ``Z_corr`` is
+    returned in the SAME orientation as the input (spots x genes).
+    """
     import harmonypy
     V = mat.values  # gene x spot
-    # standardize each gene (zero mean, unit var) -> cells x features
-    mu = np.nanmean(V, axis=1, keepdims=True)
-    sd = np.nanstd(V, axis=1, keepdims=True)
-    sd[sd == 0] = np.nan
-    Vs = (V - mu) / sd
+    n_genes, n_spots = V.shape
+    # per-gene standardization (axis=1 -> stats over spots)
+    mu = np.nanmean(V, axis=1, keepdims=True)   # (n_genes, 1)
+    sd = np.nanstd(V, axis=1, keepdims=True)    # (n_genes, 1)
+    sd_safe = np.where(sd == 0, np.nan, sd)
+    Vs = (V - mu) / sd_safe
     Vs = np.nan_to_num(Vs, nan=0.0)
-    X = Vs.T.astype(float)  # spots x genes
+    X = Vs.T.astype(float)                       # spots x genes
+    # 1-D stats for de-standardization in spots x genes orientation
+    mu1d = mu.ravel()   # (n_genes,)
+    sd1d = np.where(np.isnan(sd_safe.ravel()), 0.0, sd_safe.ravel())
     meta = pd.DataFrame({"batch": batch})
-    ho = harmonypy.run_harmony(X, meta, "batch", max_iter_harmony=20)
-    Z = ho.Z_corr.T  # spots x genes
-    # de-standardize back to original gene scale so metrics are comparable
-    Zd = Z * sd.T + mu.T  # broadcast (n_spots x n_genes)
+    n_batches = len(set(batch))
+    nclust = min(100, max(n_batches * 3, 10))
+    ho = harmonypy.run_harmony(
+        X, meta, "batch",
+        theta=[2.0] * n_batches,
+        lamb=[1.0] * n_batches,
+        sigma=np.full(nclust, 0.1),
+        nclust=nclust,
+        max_iter_harmony=20,
+        verbose=False,
+    )
+    Zc = ho.Z_corr              # (n_spots, n_genes) -- same orientation as X
+    # de-standardize: scale each column (gene) back to its original units
+    Zd = Zc * sd1d[None, :] + mu1d[None, :]
     out = pd.DataFrame(Zd.T, index=mat.index, columns=mat.columns)
     return out
 
@@ -355,11 +373,21 @@ def main():
     lin_var = gene_variance_preservation(pooled, lin)
     print(f"  LIN PCC={lin_pcc:.4f}  batch={lin_batch:.4f}  var_ratio(med)={lin_var['median_var_ratio']:.4f}")
 
-    print("\n[exp1] spaGAPA linear_batch_correction (preserve dummy group=sample) ...")
-    # preserve_labels == batch tests "partial correction": model retains sample
-    # covariate so it should NOT remove the between-sample differences (sanity).
+    print("\n[exp1] spaGAPA linear_batch_correction (preserve a 3-group slide covariate) ...")
+    # Preserve a COARSE covariate (3 slide-run groups of 6 samples each) that is
+    # NOT collinear with the 18-sample batch. This tests the real use case:
+    # remove between-sample batch effects while keeping a higher-order
+    # biological/technical grouping the analyst wants to retain. Setting
+    # preserve == batch would be fully collinear (degenerate); we avoid that.
+    samples_sorted = sorted(set(batch))
+    n_per = len(samples_sorted) // 3
+    slide_group = {}
+    for i, g in enumerate(samples_sorted):
+        slide_group[g] = f"run_{i // n_per}"   # 3 groups
+    preserve = np.array([slide_group[g] for g in batch])
+    print(f"  preserve groups: {dict((rg, sum(preserve==rg)) for rg in sorted(set(preserve)))}")
     t0 = time.time()
-    linp = apply_linear_preserve(pooled, batch, preserve=batch)
+    linp = apply_linear_preserve(pooled, batch, preserve=preserve)
     print(f"  LINpreserve done ({time.time()-t0:.1f}s)")
     linp_pcc = cross_sample_pcc(linp, batch)
     linp_batch = batch_signal_score(linp, batch)

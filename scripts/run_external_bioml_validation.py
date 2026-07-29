@@ -969,9 +969,10 @@ def run_one_dataset(
             **downstream,
         }
         if out.get("bioml_metadata") is not None:
-            row["bioml_effective_spatial_weight"] = out["bioml_metadata"]["graph_weights_effective"].get("spatial", np.nan)
-            row["bioml_effective_expression_weight"] = out["bioml_metadata"]["graph_weights_effective"].get("expression", np.nan)
-            row["bioml_effective_apa_weight"] = out["bioml_metadata"]["graph_weights_effective"].get("apa", np.nan)
+            graph_weights = out["bioml_metadata"].get("graph_weights_effective", {})
+            row["bioml_effective_spatial_weight"] = graph_weights.get("spatial", np.nan)
+            row["bioml_effective_expression_weight"] = graph_weights.get("expression", np.nan)
+            row["bioml_effective_apa_weight"] = graph_weights.get("apa", np.nan)
             row["bioml_reconstruction_error"] = out["bioml_metadata"].get("factorization_reconstruction_error", np.nan)
         summary_rows.append(row)
 
