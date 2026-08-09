@@ -1,9 +1,12 @@
 """Shared style for all spaGAPA BIB main figures.
 
 Publication conventions:
-- 300 DPI, colorblind-friendly palette (Okabe-Ito derived)
-- Labeled axes with units, clear legends, bold panel letters
-- DejaVu Sans (universally available)
+- Vector PDF output (text/axes/lines stay vector; rasterize only dense
+  spatial-scatter layers with ax.set_rasterized(True)) + 300-DPI PNG preview.
+- Colorblind-friendly Okabe-Ito palette; DejaVu Sans throughout.
+- Figures sized for BIB double-column print (~178 mm / 7.0 in wide) so all
+  text remains >= 7-8 pt at final scale. Panels show data only; explanatory
+  prose belongs in the figure caption, not inside the panel.
 """
 import matplotlib
 matplotlib.use("Agg")
@@ -56,6 +59,10 @@ NOISE_METHOD_LABELS = {
 
 OUT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/main_figures"
 
+# BIB page geometry (inches). Size figures so text stays >= 7-8 pt at print.
+PAGE_WIDTH_IN = 7.0    # double-column width (~178 mm)
+SINGLE_COL_IN = 3.4    # single column (~86 mm)
+
 def setup_rc():
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
@@ -87,8 +94,18 @@ def panel_label(ax, letter, x=-0.14, y=1.06, fontsize=13):
             fontsize=fontsize, fontweight="bold", va="bottom", ha="left")
 
 def save(fig, name):
-    path = os.path.join(OUT, name)
-    fig.savefig(path, dpi=300, bbox_inches="tight", facecolor="white")
+    """Save figure as vector PDF (publication) + 300-DPI PNG (preview) to OUT.
+
+    `name` may be given with or without extension; both .pdf and .png are
+    written with the same basename. For dense spatial-scatter axes, call
+    ax.set_rasterized(True) in the figure script before saving so the PDF
+    stays small while text remains vector.
+    """
+    base, _ = os.path.splitext(name)
+    pdf_path = os.path.join(OUT, base + ".pdf")
+    png_path = os.path.join(OUT, base + ".png")
+    fig.savefig(pdf_path, bbox_inches="tight", facecolor="white")           # vector
+    fig.savefig(png_path, dpi=300, bbox_inches="tight", facecolor="white")  # preview
     plt.close(fig)
-    print(f"  saved -> {path}")
-    return path
+    print(f"  saved -> {pdf_path} (+png)")
+    return pdf_path

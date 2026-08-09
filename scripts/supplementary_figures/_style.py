@@ -45,10 +45,13 @@ EXTRA_COLORS = [YELLOW, "#CC79A7", "#0072B2", "#009E73", "#D55E00", "#56B4E9", G
 
 
 def save_supp(fig, name):
-    """Save a supplementary figure to OUT (300 DPI, white bg)."""
-    path = os.path.join(OUT, name)
-    fig.savefig(path, dpi=300, bbox_inches="tight", facecolor="white")
+    """Save a supplementary figure as vector PDF + 300-DPI PNG preview to OUT."""
+    base, _ = os.path.splitext(name)
+    pdf_path = os.path.join(OUT, base + ".pdf")
+    png_path = os.path.join(OUT, base + ".png")
+    fig.savefig(pdf_path, bbox_inches="tight", facecolor="white")           # vector
+    fig.savefig(png_path, dpi=300, bbox_inches="tight", facecolor="white")  # preview
     import matplotlib.pyplot as plt
     plt.close(fig)
-    print(f"  saved -> {path}")
-    return path
+    print(f"  saved -> {pdf_path} (+png)")
+    return pdf_path
