@@ -13,7 +13,7 @@ per-dataset dots (not only mean bars). Generated 2026-07-28 on S91.
 | 4 | `fig4_noise_and_risk_coverage.png` | Noise methods + risk-coverage | A: four noise models · B: multi-objective · C: pooled r · D: per-gene vs pooled · E: quintile coverage · F: subgroup heatmap · **G: risk-coverage (key)** |
 | 5 | `fig5_domain_recovery.png` | Domain recovery | A: MOB layers · B: mean vs spaGAPA maps · C: ARI/NMI · D: Moran's-I recovery · E: gradient genes · F: cross-sample note |
 | 6 | `fig6_scalability.png` | Scalability | A: complexity · B: runtime log-log · C: memory · D: completion matrix · E: accuracy-runtime Pareto · F: ablation → Supplementary |
-| 7 | `fig7_stereo_seq.png` | Stereo-seq pilot | A: workflow · B: 3'-bias QC · C: scale · D: atlas · E: genes · F: binning · G: AD-WT descriptive (n=1) |
+| 7 | `fig7_stereo_seq.png` | Stereo-seq pilot | A: workflow · B: 3'-bias QC · C: scale & sparsity · D: atlas · E: PAS-by-gene · F: binning · (AD-WT descriptive -> Supplementary S14) |
 
 ---
 
@@ -106,20 +106,33 @@ Synthetic grids 1k–100k spots, 4 methods, 1200s wall cap.
 - **F. Ablation** (inducing-point sweep) → moved to Supplementary per reviewer spec.
 
 ## Figure 7 — Stereo-seq pilot (`fig7_stereo_seq.png`)
-GSE263789 mouse AD brain (Stereo-seq + scAPAtrap).
+GSE263789 mouse AD brain (Stereo-seq + scAPAtrap). Six panels (A–F); the
+n=1-vs-n=1 AD-WT descriptive effect-size panel was moved to **Supplementary
+Figure S14** to keep the main figure free of pseudoreplicated-looking claims.
 - **A. Stereo-seq workflow.** DNB array → SAW count → scAPAtrap PAS peaks →
   bin 50/100/200 → spaGAPA impute.
 - **B. 3'-end bias QC.** Reuses existing `fig1_3prime_enrichment_near_TES.png`
   (read coverage enrichment near TES confirms APA-relevant 3' capture).
-- **C. Data scale & sparsity.** 20.7M DNB, 21,455 PAS, 4,845 genes, ~12% observed.
-- **D. Tissue APA atlas.** Spatial APA usage across bin50 coordinates.
-- **E. Representative genes.** Three PAS peaks (cortex-enriched, hippocampal
-  gradient, punctate).
-- **F. Binning consistency.** Cross-bin Pearson r for 50→100 and 50→200; mean r=0.84,
-  100% of pairs >0.7 — APA patterns robust to resolution.
-- **G. AD vs WT (descriptive, n=1).** Illustrative APA DU direction by gene category.
-  **No statistical testing** (n=1 per group); effect directions for hypothesis
-  generation only, prominently flagged.
+- **C. Data scale & sparsity.** 20.7M DNB, 21,455 PAS, 15,235 bin200 spots.
+  Sparsity is reported with a single consistent definition: the
+  peak × spot **usage matrix** is **~10.3% observed (~90% empty)** = nnz 33.8M /
+  326.9M entries (from `binned_200/qc_summary.json`). The raw peak × spot
+  record count (97.8M) is a separate count and is **not** conflated with the
+  observed fraction.
+- **D. Tissue APA atlas.** GP-imputed spatial domains (n=41) + per-spot
+  posterior uncertainty across bin200 coordinates. **Descriptive bin-level
+  domains** computed on a 1,500 high-variance-gene subset; at this gene count
+  the partition likely over-segments relative to a canonical tissue taxonomy,
+  so it is shown as an exploratory spatial summary, not a ground-truth cell-type
+  map.
+- **E. Representative PAS, gene-annotated.** Three real high-spatial-variance
+  PAS maps (bin200 usage), each annotated with its overlapping gene on mm10:
+  **Cdk8** (peak_69378, chr5:146.26M), **Apoe** (peak_312125, chr7:19.70M —
+  Alzheimer's APOE), **Gnb1l** (peak_415285, chr16:18.53M).
+- **F. Binning consistency.** Cross-bin Pearson r for 50→100 and 50→200 over
+  8 high-variance PAS (16 pairs); mean r=0.84, all pairs >0.7. Moran's I
+  decreases with coarser binning as expected. The 8-PAS / 16-pair panel is a
+  **descriptive cross-bin agreement check**, not a population-level claim.
 
 ---
 
@@ -138,7 +151,7 @@ GSE263789 mouse AD brain (Stereo-seq + scAPAtrap).
 
 ## Generation scripts
 `fig1_overview.py`, `fig2_benchmark.py`, `fig3_conformal.py`, `fig4_noise.py`,
-`fig5_domain.py`, `fig6_scalability.py`, `fig7_stereo.py` (shared `"_style.py`).
+`fig5_domain.py`, `fig6_scalability.py`, `fig7_stereo_seq.py` (shared `"_style.py`).
 Reproduce with:
 ```bash
 OPENBLAS_NUM_THREADS=8 TMPDIR=/s3/mengzijun/tmp \

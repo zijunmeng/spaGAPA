@@ -1,6 +1,6 @@
 # spaGAPA BIB Paper — Supplementary Figure Generation Scripts
 
-Canonical, version-controlled generation scripts for **Supplementary Figures S1–S13**.
+Canonical, version-controlled generation scripts for **Supplementary Figures S1–S14**.
 Mirrors `scripts/main_figures/` (main figures 1–7); the rendered PNGs and cached
 intermediate data are written under `pipeline_output/supplementary_figures/`
 (gitignored — treated as generated outputs).
@@ -40,7 +40,10 @@ first if the cache is stale or missing (they write to
 | S11 | `supp_fig11_pseudoreplication.py` | Pseudoreplication analysis (GSE220442) | donor-level diff-APA outputs |
 | S12 | `supp_fig12_stereo_qc_binning.py` | Stereo-seq QC + binning sensitivity | `_cache/s12_tes_distances.npy` (`_stereo_3end.py`) |
 | S13 | `supp_fig13_batch_correction.py` | Batch correction: QN vs Harmony | `apa_bias_correction/` |
+| S14 | `supp_fig14_stereo_adwt_descriptive.py` | AD vs WT Stereo-seq APA effect sizes (n=1, descriptive) | `gse263789_ad_vs_wt_differential/sample_level_effect_sizes.csv` |
 
 Panel-level figure descriptions are documented in each `supp_figNN_*.py`
 docstring (top-of-file); main figures 1–7 are indexed in
-`scripts/main_figures/figure_index.md`.
+`scripts/main_figures/figure_index.md`. S14 houses the n=1-vs-n=1 AD-WT
+effect-size analysis moved out of main Figure 7 — effect sizes only, **no
+p-value / no FDR** (biological n=1 per condition).

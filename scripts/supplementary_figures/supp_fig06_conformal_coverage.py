@@ -4,10 +4,11 @@
 Panels:
   A: Empirical vs nominal coverage at 80/90/95% (grouped bar, per sample).
   B: Interval width = 2*qhat at each level (per sample).
-  C: Interval score (Gneiting & Raftery 2007) per sample — approximation from
-     the per-sample qhat and RMSE (see note in caption). Lower is better.
-  D: Conditional coverage by uncertainty quintile (deviation from nominal 90%),
-     summarised across samples — shows conservative behaviour at high-uncertainty.
+  C: Interval score (Gneiting & Raftery 2007) per sample — an approximation
+     derived from the per-sample qhat and RMSE (not computed per-spot; see
+     caption). Lower is better.
+  D: Empirical subgroup coverage by uncertainty quintile (deviation from nominal
+     90%), summarised across samples — a marginal, not conditional, diagnostic.
 
 Data:
   pipeline_output/conformal_validation/all_samples_coverage.csv  (11 samples)
@@ -85,13 +86,13 @@ def main():
         axC.bar(x + (i - 1) * w, score, width=w, color=col, edgecolor="white", linewidth=0.4,
                 label=f"{int(nom*100)}%")
     axC.set_xticks(x); axC.set_xticklabels(labels, fontsize=6.3, rotation=55, ha="right")
-    axC.set_ylabel("Interval score (lower = better)")
+    axC.set_ylabel("Interval score (approx. from $\\hat{q}$ + RMSE; lower = better)")
     axC.set_xlabel("Sample")
-    axC.set_title("Interval score (proxy; see caption)", loc="left")
+    axC.set_title("Interval score (approximation from $\\hat{q}$ + RMSE)", loc="left")
     axC.legend(title="Target", loc="upper left", fontsize=7)
     panel_label(axC, "C", x=-0.06, y=1.05)
 
-    # ---------- Panel D: conditional coverage by uncertainty quintile ----------
+    # ---------- Panel D: empirical subgroup coverage by uncertainty quintile ----------
     axD = fig.add_subplot(gs[1, 1])
     cc = pd.read_csv(os.path.join(ROOT, "pipeline_output/conformal_conditional_coverage/by_uncertainty_quintile.csv"))
     # Mean deviation across samples, per quintile, at 90% target.
@@ -106,19 +107,22 @@ def main():
                          for q in summary["quintile"]], fontsize=7.5)
     axD.set_ylabel("Coverage − 90% target  (deviation)")
     axD.set_xlabel("Uncertainty quintile (per-sample GP posterior std)")
-    axD.set_title("Conditional coverage by uncertainty quintile", loc="left")
+    axD.set_title("Empirical subgroup coverage by uncertainty quintile", loc="left")
     axD.text(0.5, -0.32,
-             "Positive deviation = conservative (over-cover); the highest-uncertainty quintile\n"
-             "is intentionally conservative — wider intervals where the GP is less certain.",
+             "Positive deviation = conservative (over-cover). This is an empirical marginal-"
+             "coverage check\nby subgroup (quintile), not a formal conditional-coverage guarantee; "
+             "the highest-uncertainty quintile over-covers.",
              transform=axD.transAxes, fontsize=6.8, ha="center", style="italic", color="#444")
     panel_label(axD, "D", x=-0.06, y=1.05)
 
     fig.suptitle("Supplementary Figure S6 — Full conformal coverage (11 samples × 80/90/95%)",
                  fontsize=11, fontweight="bold", y=0.995)
-    # Caption note on interval-score proxy.
+    # Caption note on interval-score approximation.
     fig.text(0.5, 0.012,
              "Panel C interval score is the Gneiting–Raftery score approximated from per-sample qhat and RMSE "
-             "(width + (2/α)·RMSE·(1−coverage)); lower is better. Coverage & width are exact.",
+             "(width + (2/α)·RMSE·(1−coverage)); it is NOT computed per spot, only an aggregate proxy. "
+             "Coverage (A) and width (B) are exact; Panel D is an empirical subgroup check, not a formal "
+             "conditional-coverage guarantee.",
              ha="center", fontsize=6.8, style="italic", color="#555")
     save_supp(fig, "supp_fig06_conformal_coverage.png")
     print("[S6] done", flush=True)

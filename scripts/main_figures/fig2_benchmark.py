@@ -1,261 +1,285 @@
-"""Figure 2: Spatial vs mean benchmark (6 panels).
+"""Figure 2: spaGAPA-GP vs mean / competitor benchmark (6 panels).
 
-Honest: shows mean beating GP on RMSE transparently, GP wins on spatial fidelity.
+Honest framing (driven by the real benchmark numbers):
+- Panels A-D: real per-dataset benchmark (transparent_comparison.csv). The
+  per-gene *mean* is a very strong pointwise RMSE baseline and beats
+  spaGAPA-GP on RMSE/Pearson/Spearman in aggregate. spaGAPA-GP wins clearly
+  only on *spatial fidelity* (gradient recovery) -- it is the only method
+  besides spatial-KNN that reconstructs a spatial gradient rather than
+  collapsing to a per-gene constant.
+- Panel E: a single representative high-spatial-signal gene (peak_94938,
+  Moran's I = +0.50) from GSE183456, showing truth / mean / REAL spaGAPA-GP
+  posterior / |GP-truth|. The per-spot posterior is produced by the actual
+  `spagapa.SparseGPImputer` (NOT a proxy); see
+  `fig2E_run_real_gp.py` and `_data/fig2E_gse183456_peak_94938_gp_posterior.csv`.
+- Panel F: real per-gene stratification from 150 genes
+  (`supplementary_figures/_cache/s4_stratification.csv`). The per-gene mean
+  beats spaGAPA-GP on RMSE in ~85% of genes; spaGAPA-GP's value is NOT
+  global RMSE minimisation but spatial reconstruction + calibrated
+  uncertainty + scalable probabilistic inference.
+
+All panel text >= 7 pt; figure width = PAGE_WIDTH_IN (~7 in). Explanatory
+prose lives in this docstring / figure caption, not inside panels.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
-from _style import *
+from _style import (setup_rc, panel_label, save, PAGE_WIDTH_IN,
+                    METHOD_COLORS, METHOD_ORDER, METHOD_LABELS,
+                    BLUE, ORANGE, GREEN, SKYBLU, YELLOW, RED, GREY, BLACK)
 import pandas as pd
 import numpy as np
-from matplotlib.patches import Patch, Rectangle, FancyBboxPatch, FancyArrowPatch
-from matplotlib.lines import Line2D
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch, Rectangle
+import matplotlib.gridspec as gridspec
 
 setup_rc()
 
-DATA = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output"
+ROOT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
+DATA = os.path.join(ROOT, "pipeline_output")
+
+# ============================================================
+# Load real data
+# ============================================================
 df = pd.read_csv(f"{DATA}/benchmark_mean_transparent/transparent_comparison.csv")
 df = df[df.method.isin(METHOD_ORDER)].copy()
 
-fig = plt.figure(figsize=(13, 8))
-gs = fig.add_gridspec(3, 4, hspace=0.55, wspace=0.40,
-                       left=0.06, right=0.97, top=0.93, bottom=0.07)
-# A: schematic (span 2 cols, top-left)
-axA = fig.add_subplot(gs[0, 0:2])
-# B: per-dataset metrics (top, cols 2-3 split into 3)
+s4 = pd.read_csv(f"{DATA}/supplementary_figures/_cache/s4_stratification.csv")
+s4 = s4.dropna(subset=["morans_i", "delta_rmse"])
+s4 = s4[np.isfinite(s4["delta_rmse"])].copy()
+s4["quintile"] = pd.qcut(s4["morans_i"], 5, labels=[1, 2, 3, 4, 5]).astype(int)
+
+# Panel E: real GP posterior on peak_94938 (produced by fig2E_run_real_gp.py)
+GENE2E = "peak_94938"
+gp_path = f"{DATA}/main_figures/_data/fig2E_gse183456_{GENE2E}_gp_posterior.csv"
+gp_df = pd.read_csv(gp_path)
+import json
+gp_meta = json.load(open(f"{DATA}/main_figures/_data/fig2E_gse183456_{GENE2E}_meta.json"))
+
+# ============================================================
+# Figure layout: PAGE_WIDTH_IN wide, 4 rows x 4 cols
+#   row 0: A (schematic, span 2) | B1 RMSE | B2 corr
+#   row 1: C spatial fidelity (span 2) | D accuracy-spatial (span 2)
+#   row 2-3: E gene maps (2x4 mini inside span 2) | F boxplot (span 2)
+# ============================================================
+FIG_H = 9.4
+fig = plt.figure(figsize=(PAGE_WIDTH_IN, FIG_H))
+gs = fig.add_gridspec(
+    3, 4, height_ratios=[1.05, 1.05, 1.35],
+    hspace=0.62, wspace=0.42,
+    left=0.07, right=0.975, top=0.965, bottom=0.065,
+)
+axA  = fig.add_subplot(gs[0, 0:2])
 axB1 = fig.add_subplot(gs[0, 2])
 axB2 = fig.add_subplot(gs[0, 3])
-# C: spatial fidelity bar (mid-left)
-axC = fig.add_subplot(gs[1, 0:2])
-# D: accuracy-spatial 2D scatter (mid-right)
-axD = fig.add_subplot(gs[1, 2:])
-# E: representative gene maps (bottom-left, 2 genes x 4 methods = 8 mini)
-# F: stratified by Moran's I (bottom-right)
+axC  = fig.add_subplot(gs[1, 0:2])
+axD  = fig.add_subplot(gs[1, 2:])
+# row 2 split: E (left 2 cols) and F (right 2 cols)
+sub_gs_E = gridspec.GridSpecFromSubplotSpec(
+    2, 4, subplot_spec=gs[2, 0:2], wspace=0.04, hspace=0.18)
 axF = fig.add_subplot(gs[2, 2:])
-# Panel E mini axes added manually below
 
 # ---------------- Panel A: masking design schematic ----------------
-axA.set_xlim(0,1); axA.set_ylim(0,1); axA.axis("off")
-axA.set_title("Masking design: 20% per-gene holdout", loc="left")
+axA.set_xlim(0, 1); axA.set_ylim(0, 1); axA.axis("off")
+axA.set_title("Masking design: 20% per-gene holdout", loc="left", fontsize=9)
 np.random.seed(42)
-gx, gy = 0.05, 0.20
-cw, ch = 0.018, 0.058
-nrows, ncols = 8, 40
-# create a spatial-ish pattern where observed is sparse then masked on top
-obs = np.random.rand(nrows, ncols) < 0.30  # ~30% observed
+gx, gy = 0.06, 0.22
+cw, ch = 0.019, 0.060
+nrows, ncols = 8, 38
+obs = np.random.rand(nrows, ncols) < 0.30
 held = np.zeros_like(obs, dtype=bool)
 for r in range(nrows):
     idx = np.where(obs[r])[0]
     np.random.shuffle(idx)
-    nmask = int(len(idx)*0.20)
-    held[r, idx[:nmask]] = True
+    held[r, idx[:int(len(idx) * 0.20)]] = True
 for r in range(nrows):
     for c in range(ncols):
-        if held[r, c]:
-            col = RED
-        elif obs[r, c]:
-            col = BLUE
-        else:
-            col = "#E8E8E8"
-        axA.add_patch(Rectangle((gx + c*cw, gy + (nrows-1-r)*ch), cw*0.9, ch*0.9,
-                                fc=col, ec="white", lw=0.2))
-axA.text(0.05, 0.78, "Gene", fontsize=7.5, fontweight="bold")
-axA.text(0.05, 0.72, "↓", fontsize=8)
-axA.text(0.50, 0.10, "Spot →", fontsize=7.5, fontweight="bold", ha="center")
+        col = RED if held[r, c] else (BLUE if obs[r, c] else "#E8E8E8")
+        axA.add_patch(Rectangle((gx + c * cw, gy + (nrows - 1 - r) * ch),
+                                cw * 0.9, ch * 0.9, fc=col, ec="white", lw=0.2))
+axA.text(0.06, 0.80, "Gene", fontsize=7.5, fontweight="bold")
+axA.text(0.06, 0.74, "↓", fontsize=8)
+axA.text(0.52, 0.11, "Spot →", fontsize=7.5, fontweight="bold", ha="center")
 leg = [Patch(fc=BLUE, label="Observed (train+cal)"),
        Patch(fc=RED, label="Held-out (test)"),
        Patch(fc="#E8E8E8", label="Unobserved")]
-axA.legend(handles=leg, fontsize=6.8, loc="upper right", bbox_to_anchor=(0.98, 0.95))
-panel_label(axA, "A")
+axA.legend(handles=leg, fontsize=6.6, loc="upper right",
+           bbox_to_anchor=(0.99, 0.96), handlelength=1.1, borderpad=0.3)
+panel_label(axA, "A", x=-0.06, y=1.10)
 
-# ---------------- Panel B: per-dataset paired dots (RMSE + Pearson+Spearman) ----------------
-# B1: RMSE (lower better)
-metrics_lo = {"RMSE": "rmse"}
-for ax, met, col, better in [(axB1, "rmse", BLUE, "lower")]:
-    sub = df.dropna(subset=[met])
-    for i, m in enumerate(METHOD_ORDER):
-        vals = sub[sub.method == m][met].values
-        xs = np.full(len(vals), i) + np.random.RandomState(i).normal(0, 0.05, len(vals))
-        ax.scatter(xs, vals, s=30, color=METHOD_COLORS[m], edgecolor="white",
-                   lw=0.6, zorder=3, alpha=0.9)
-        ax.plot([i-0.12, i+0.12], [vals.mean(), vals.mean()], color="black", lw=1.5, zorder=4)
-    ax.set_xticks(range(len(METHOD_ORDER)))
-    ax.set_xticklabels([METHOD_LABELS[m] for m in METHOD_ORDER], rotation=35, ha="right", fontsize=7)
-    ax.set_ylabel(f"RMSE (↓ better)")
-    ax.set_title("Entry-wise RMSE", fontsize=9)
-    panel_label(ax, "B", x=-0.22, y=1.12)
-
-# B2: Pearson & Spearman grouped
-axB2b = axB2
-width = 0.35
-x = np.arange(5)
-for k, (met, col) in enumerate([("pearson", BLUE), ("spearman", GREEN)]):
-    means = [df[df.method==m][met].dropna().mean() for m in METHOD_ORDER]
-    stds = [df[df.method==m][met].dropna().std() for m in METHOD_ORDER]
-    off = (k-0.5)*width
-    bars = axB2b.bar(x+off, means, width, color=col, yerr=stds, capsize=2,
-                     edgecolor="white", lw=0.5,
-                     label={"pearson":"Pearson r","spearman":"Spearman ρ"}[met])
-    for i, m in enumerate(METHOD_ORDER):
-        vals = df[df.method==m][met].dropna().values
-        xs = np.full(len(vals), x[i]+off) + np.random.RandomState(i+10).normal(0,0.03,len(vals))
-        axB2b.scatter(xs, vals, s=14, color="black", alpha=0.6, zorder=4)
-axB2b.set_xticks(x); axB2b.set_xticklabels([METHOD_LABELS[m] for m in METHOD_ORDER], rotation=35, ha="right", fontsize=7)
-axB2b.set_ylabel("Correlation")
-axB2b.set_ylim(0.65, 1.0)
-axB2b.legend(loc="lower right", fontsize=6.5)
-axB2b.set_title("Rank correlation", fontsize=9)
-
-# ---------------- Panel C: spatial fidelity bar ----------------
-axC.set_title("Spatial fidelity (gradient recovery)", loc="left")
-means = [df[df.method==m]["spatial_fidelity"].dropna().mean() for m in METHOD_ORDER]
-sds = [df[df.method==m]["spatial_fidelity"].dropna().std() for m in METHOD_ORDER]
-bars = axC.bar(range(5), means, color=[METHOD_COLORS[m] for m in METHOD_ORDER],
-               edgecolor="white", lw=0.8, width=0.65)
+# ---------------- Panel B1: entry-wise RMSE ----------------
 for i, m in enumerate(METHOD_ORDER):
-    vals = df[df.method==m]["spatial_fidelity"].dropna().values
-    xs = np.full(len(vals), i) + np.random.RandomState(i).normal(0,0.04,len(vals))
-    axC.scatter(xs, vals, color="black", s=22, zorder=4)
-axC.set_xticks(range(5))
-axC.set_xticklabels([METHOD_LABELS[m] for m in METHOD_ORDER], fontsize=7.5)
-axC.set_ylabel("Spatial fidelity")
+    vals = df[df.method == m]["rmse"].dropna().values
+    xs = np.full(len(vals), i) + np.random.RandomState(i).normal(0, 0.05, len(vals))
+    axB1.scatter(xs, vals, s=22, color=METHOD_COLORS[m], edgecolor="white",
+                 lw=0.5, zorder=3, alpha=0.9)
+    axB1.plot([i - 0.13, i + 0.13], [vals.mean(), vals.mean()],
+              color="black", lw=1.4, zorder=4)
+axB1.set_xticks(range(len(METHOD_ORDER)))
+axB1.set_xticklabels([METHOD_LABELS[m] for m in METHOD_ORDER],
+                     rotation=35, ha="right", fontsize=6.5)
+axB1.set_ylabel("RMSE (↓)", fontsize=8)
+axB1.set_title("Entry-wise RMSE", fontsize=8.5)
+axB1.tick_params(labelsize=7)
+panel_label(axB1, "B", x=-0.30, y=1.14)
+
+# ---------------- Panel B2: Pearson & Spearman ----------------
+width = 0.35
+xpos = np.arange(len(METHOD_ORDER))
+for k, (met, col, lab) in enumerate([("pearson", BLUE, "Pearson r"),
+                                     ("spearman", GREEN, "Spearman ρ")]):
+    means = [df[df.method == m][met].dropna().mean() for m in METHOD_ORDER]
+    stds  = [df[df.method == m][met].dropna().std()  for m in METHOD_ORDER]
+    off = (k - 0.5) * width
+    axB2.bar(xpos + off, means, width, color=col, yerr=stds, capsize=2,
+             edgecolor="white", lw=0.5, label=lab)
+    for i, m in enumerate(METHOD_ORDER):
+        vals = df[df.method == m][met].dropna().values
+        xs = np.full(len(vals), xpos[i] + off) + np.random.RandomState(i + 10).normal(0, 0.03, len(vals))
+        axB2.scatter(xs, vals, s=10, color="black", alpha=0.6, zorder=4)
+axB2.set_xticks(xpos)
+axB2.set_xticklabels([METHOD_LABELS[m] for m in METHOD_ORDER],
+                     rotation=35, ha="right", fontsize=6.5)
+axB2.set_ylabel("Correlation", fontsize=8)
+axB2.set_ylim(0.65, 1.0)
+axB2.legend(loc="lower right", fontsize=6.3, handlelength=1.1)
+axB2.set_title("Rank correlation", fontsize=8.5)
+axB2.tick_params(labelsize=7)
+
+# ---------------- Panel C: spatial fidelity ----------------
+axC.set_title("Spatial fidelity (gradient recovery)", loc="left", fontsize=9)
+means = [df[df.method == m]["spatial_fidelity"].dropna().mean() for m in METHOD_ORDER]
+axC.bar(range(len(METHOD_ORDER)), means,
+        color=[METHOD_COLORS[m] for m in METHOD_ORDER],
+        edgecolor="white", lw=0.8, width=0.65)
+for i, m in enumerate(METHOD_ORDER):
+    vals = df[df.method == m]["spatial_fidelity"].dropna().values
+    xs = np.full(len(vals), i) + np.random.RandomState(i).normal(0, 0.04, len(vals))
+    axC.scatter(xs, vals, color="black", s=16, zorder=4)
+axC.set_xticks(range(len(METHOD_ORDER)))
+axC.set_xticklabels([METHOD_LABELS[m] for m in METHOD_ORDER], fontsize=7)
+axC.set_ylabel("Spatial fidelity", fontsize=8)
 axC.set_ylim(-0.05, 1.0)
 axC.axhline(0, color="#888", lw=0.6, ls="--")
-axC.annotate("GP 0.42 vs Mean 0.00\n(GP recovers gradient; mean is flat)",
-             xy=(0, 0.42), xytext=(0.6, 0.70), fontsize=7,
-             arrowprops=dict(arrowstyle="->", color=BLUE, lw=1.0), color=BLUE, fontweight="bold")
-panel_label(axC, "C")
+axC.annotate("spaGAPA-GP 0.42 vs Mean 0.00\n(GP reconstructs gradient; mean is flat)",
+             xy=(0, 0.42), xytext=(0.65, 0.70), fontsize=6.8,
+             arrowprops=dict(arrowstyle="->", color=BLUE, lw=0.9),
+             color=BLUE, fontweight="bold")
+axC.tick_params(labelsize=7)
+panel_label(axC, "C", x=-0.07, y=1.08)
 
-# ---------------- Panel D: accuracy-spatial 2D scatter ----------------
-axD.set_title("Accuracy vs spatial fidelity", loc="left")
+# ---------------- Panel D: accuracy vs spatial 2D ----------------
+axD.set_title("Accuracy vs spatial fidelity", loc="left", fontsize=9)
 for m in METHOD_ORDER:
-    sub = df[df.method==m]
+    sub = df[df.method == m]
     axD.errorbar(sub["rmse"].mean(), sub["spatial_fidelity"].mean(),
                  xerr=sub["rmse"].std(), yerr=sub["spatial_fidelity"].std(),
-                 fmt="o", color=METHOD_COLORS[m], ms=11, capsize=3,
-                 markeredgecolor="white", lw=1.2, label=METHOD_LABELS[m], zorder=4)
-# annotate the tradeoff
-axD.annotate("Mean: high accuracy,\nzero gradient", xy=(0.086, 0.0), xytext=(0.18, 0.15),
-             fontsize=6.8, arrowprops=dict(arrowstyle="->", color=GREY), color=GREY)
-axD.annotate("spaGAPA-GP: moderate accuracy,\nstrong gradient", xy=(0.123, 0.42), xytext=(0.20, 0.55),
-             fontsize=6.8, arrowprops=dict(arrowstyle="->", color=BLUE), color=BLUE)
-axD.set_xlabel("RMSE (lower = more accurate)")
-axD.set_ylabel("Spatial fidelity")
-axD.legend(fontsize=6.8, loc="upper right")
+                 fmt="o", color=METHOD_COLORS[m], ms=8, capsize=2.5,
+                 markeredgecolor="white", lw=1.0,
+                 label=METHOD_LABELS[m], zorder=4)
+axD.annotate("Mean: lowest RMSE,\nzero gradient", xy=(0.080, 0.0), xytext=(0.17, 0.13),
+             fontsize=6.5, arrowprops=dict(arrowstyle="->", color=GREY, lw=0.8), color=GREY)
+axD.annotate("spaGAPA-GP: moderate RMSE,\nstrong gradient", xy=(0.122, 0.42), xytext=(0.20, 0.60),
+             fontsize=6.5, arrowprops=dict(arrowstyle="->", color=BLUE, lw=0.8), color=BLUE)
+axD.set_xlabel("Entry-wise RMSE (↓)", fontsize=8)
+axD.set_ylabel("Spatial fidelity", fontsize=8)
+axD.legend(fontsize=6.4, loc="upper right", handlelength=1.1)
 axD.set_xlim(0.05, 0.30)
-panel_label(axD, "D")
+axD.tick_params(labelsize=7)
+panel_label(axD, "D", x=-0.07, y=1.08)
 
-# ---------------- Panel E: representative gene spatial maps ----------------
-# load GSE183456 and pick 2 high-spatial-variance genes
-apa = pd.read_csv("/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/data/processed/gse183456_gsm6047774_scapatrap/apa_matrix.csv", index_col=0)
-coord = pd.read_csv("/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/data/processed/gse183456_gsm6047774_scapatrap/coordinates.csv", index_col=0)
-# align spots
-apa = apa[coord.index]
-x = coord["x"].values; y = coord["y"].values
-# spatial variance proxy: variance of per-spot values (exclude all-zero genes)
-var_per_gene = apa.var(axis=1)
-obs_frac = (apa > 0).mean(axis=1)
-cand = apa[(obs_frac > 0.10) & (obs_frac < 0.30)]
-cand_var = cand.var(axis=1).sort_values(ascending=False)
-gene1 = cand_var.index[0]
-gene2 = cand_var.index[5]
+# ============================================================
+# Panel E: representative APA spatial maps (REAL spaGAPA-GP)
+#   one high-spatial-signal gene (peak_94938, Moran's I = +0.50)
+#   2 rows: row0 = the 4 maps; row1 = blank spacer (kept for symmetry)
+#   truth / mean / spaGAPA-GP posterior / |GP - truth|
+# ============================================================
+x_e = gp_df["x"].values
+y_e = gp_df["y"].values
+truth = gp_df["truth"].values
+mean_pred = gp_df["pred_mean"].values
+gp_pred = gp_df["pred_gp"].values
+err = np.abs(gp_pred - truth)
+# nan-safe colour limits from observed truth
+obs_mask = np.isfinite(truth) & (truth > 0)
+vmin = float(np.percentile(truth[obs_mask], 2)) if obs_mask.any() else 0.0
+vmax = float(np.percentile(truth[obs_mask], 98)) if obs_mask.any() else 1.0
+err_vmax = max(float(np.nanmax(err)), 1e-3)
 
-methods_e = [("Truth", None), ("Mean", GREY), ("spaGAPA-GP", BLUE), ("Error (|GP-truth|)", RED)]
+panels_e = [
+    ("Truth",            truth,     "viridis", vmin, vmax),
+    ("Mean",             mean_pred, "viridis", vmin, vmax),
+    ("spaGAPA-GP",       gp_pred,   "viridis", vmin, vmax),
+    ("|GP − truth|",     err,       "Reds",    0.0,   err_vmax),
+]
+for mi, (lab, pdat, cmap, lo, hi) in enumerate(panels_e):
+    axm = fig.add_subplot(sub_gs_E[0, mi])
+    sc = axm.scatter(x_e, y_e, c=np.nan_to_num(pdat, nan=0.0),
+                     s=2.4, cmap=cmap, vmin=lo, vmax=hi, rasterized=True)
+    axm.set_xticks([]); axm.set_yticks([])
+    for s in axm.spines.values():
+        s.set_linewidth(0.5)
+    axm.set_title(lab, fontsize=7, fontweight="bold", pad=2)
+    # compact shared colourbar-less; one bar under the error panel
+# Hide the unused second sub-row (kept for visual breathing room / caption)
+for mi in range(4):
+    axhid = fig.add_subplot(sub_gs_E[1, mi]); axhid.axis("off")
 
-# 8 mini panels in bottom-left (2 rows x 4 cols), span gs[2,0:2]
-# We'll create manual axes in that region
-import matplotlib.gridspec as gridspec
-sub_gs = gridspec.GridSpecFromSubplotSpec(2, 4, subplot_spec=gs[2, 0:2], wspace=0.05, hspace=0.25)
-axE_title = fig.add_subplot(gs[2, 0:2]); axE_title.axis("off")
-axE_title.set_title("Representative APA spatial maps (GSE183456)", loc="left", fontsize=9)
-panel_label(axE_title, "E", x=-0.02, y=1.15)
-axE_title.set_xlim(0,1); axE_title.set_ylim(0,1)
+# title + panel label on an invisible anchor over the E region
+axE_anchor = fig.add_subplot(gs[2, 0:2]); axE_anchor.axis("off")
+axE_anchor.set_title(
+    f"Representative APA spatial map — {GENE2E}  (Moran's I = {gp_meta['morans_i']:+.2f})",
+    loc="left", fontsize=8.5,
+)
+panel_label(axE_anchor, "E", x=-0.04, y=1.12)
+axE_anchor.set_xlim(0, 1); axE_anchor.set_ylim(0, 1)
 
-def simple_impute_mean(apa_row, mask):
-    obs = apa_row[~mask]
-    return np.full_like(apa_row, obs.mean())
-
-def simple_impute_gp(apa_row, x, y, mask, length=300):
-    """Lightweight local GP-like smoothing via RBF-weighted neighbors on observed."""
-    obs_idx = np.where(~mask)[0]
-    if len(obs_idx) == 0:
-        return np.full_like(apa_row, apa_row.mean())
-    xo = x[obs_idx]; yo = y[obs_idx]; vo = apa_row[obs_idx]
-    out = np.empty_like(apa_row, dtype=float)
-    # grid the targets for speed
-    invL2 = 1.0/(2*length**2)
-    for i in range(len(apa_row)):
-        d2 = (xo - x[i])**2 + (yo - y[i])**2
-        w = np.exp(-d2*invL2)
-        sw = w.sum()
-        out[i] = (w*vo).sum()/sw if sw>0 else vo.mean()
-    return out
-
-rng = np.random.RandomState(42)
-for gi, gene in enumerate([gene1, gene2]):
-    row = apa.loc[gene].values.astype(float)
-    mask = rng.rand(len(row)) < 0.20
-    truth = row.copy()
-    mean_imp = simple_impute_mean(row, mask)
-    gp_imp = simple_impute_gp(row, x, y, mask)
-    err = np.abs(gp_imp - truth)
-    # only show held-out points to be honest, but for a visual map show full
-    panels = [truth, mean_imp, gp_imp, err]
-    for mi, (lab, pdat) in enumerate(zip(["Truth","Mean","spaGAPA-GP","|GP−truth|"], panels)):
-        axm = fig.add_subplot(sub_gs[gi, mi])
-        if mi == 3:
-            sc = axm.scatter(x, y, c=pdat, s=3.2, cmap="Reds", vmin=0, vmax=max(err.max(), 0.001), rasterized=True)
-        else:
-            vmin = np.percentile(truth[truth>0], 2) if (truth>0).any() else 0
-            vmax = np.percentile(truth[truth>0], 98) if (truth>0).any() else 1
-            sc = axm.scatter(x, y, c=pdat, s=3.2, cmap="viridis", vmin=vmin, vmax=vmax, rasterized=True)
-        axm.set_xticks([]); axm.set_yticks([])
-        for s in axm.spines.values(): s.set_linewidth(0.5)
-        if gi == 0:
-            axm.set_title(lab, fontsize=7, fontweight="bold")
-        if mi == 0:
-            axm.set_ylabel(f"{gene[:11]}", fontsize=6.5, fontweight="bold")
-    fig.text(0.30, 0.005, "Mean = flat per-gene constant (no gradient)   |   spaGAPA-GP = spatially smoothed posterior",
-             fontsize=6.8, ha="center", style="italic", color="#444")
-
-# ---------------- Panel F: stratified by gene spatial signal ----------------
-# Stratify genes into low/med/high spatial variance (proxy for Moran's I), compute GP-mean delta RMSE
-# We don't have per-gene RMSE per method; use spatial-fidelity-stratified reconstruction.
-# Honest approach: simulate gene stratification from the apa matrix variance.
-axF.set_title("GP advantage grows with gene spatial signal", loc="left")
-# compute per-gene spatial variance proxy and a synthetic delta
-apa_obs_frac = (apa > 0).mean(axis=1)
-cand2 = apa[(apa_obs_frac > 0.08) & (apa_obs_frac < 0.35)]
-spatial_var = cand2.var(axis=1)
-# bin into 3
-sv = spatial_var.values
-bins = np.quantile(sv, [0.33, 0.66])
-group = np.where(sv < bins[0], "Low\n(bottom 33%)", np.where(sv < bins[1], "Medium\n(mid 33%)", "High\n(top 33%)"))
-# delta_rmse: from the benchmark we know mean beats GP overall; the relative gap narrows with spatial signal
-# Use a model: delta_rmse(gp-mean) becomes less negative (GP catches up) as spatial signal rises.
-# We map spatial_var to a normalized "spatial signal strength" and apply the observed overall delta
-# scaling with published trend. Use representative values consistent with transparent_comparison.
-# Overall: gp RMSE 0.122, mean 0.080 -> delta -0.042. For high-spatial genes GP approaches mean.
-strat = pd.DataFrame({"group": group, "sv": sv})
-medians = strat.groupby("group")["sv"].median()
-order = ["Low\n(bottom 33%)", "Medium\n(mid 33%)", "High\n(top 33%)"]
-# delta = gp - mean (negative = mean better). scale from -0.05 (low) to -0.02 (high)
-delta = np.array([-0.052, -0.038, -0.018])
-gp_rmse = 0.080 + np.abs(delta)  # mean ~0.080 baseline + gap
-mean_rmse = np.array([0.080]*3)
-xs = np.arange(3)
-axF.bar(xs-0.18, mean_rmse, 0.32, color=GREY, label="Mean", edgecolor="white")
-axF.bar(xs+0.18, gp_rmse, 0.32, color=BLUE, label="spaGAPA-GP", edgecolor="white")
-axF.set_xticks(xs); axF.set_xticklabels(order, fontsize=7.5)
-axF.set_ylabel("RMSE")
-axF.set_xlabel("Gene spatial signal (variance stratum)")
-axF.legend(loc="upper right", fontsize=7)
-# annotate deltas
-for i, d in enumerate(delta):
-    axF.annotate(f"Δ={d:+.3f}", xy=(xs[i], max(mean_rmse[i], gp_rmse[i])+0.004),
-                 fontsize=6.5, ha="center", color=("green" if d>0 else RED), fontweight="bold")
-axF.text(0.5, -0.30, "GP-vs-mean RMSE gap narrows as spatial signal rises;\nat very high signal GP approaches parity",
-         transform=axF.transAxes, fontsize=6.5, ha="center", style="italic", color="#444")
-panel_label(axF, "F")
+# ============================================================
+# Panel F: per-gene ΔRMSE (GP − mean) by Moran's I quintile
+#   REAL data from s4_stratification.csv (150 genes, GSE183456, 20% holdout).
+#   Honest: mean beats GP on RMSE in ~85% of genes; GP's value is spatial
+#   reconstruction + calibrated uncertainty, not global RMSE minimisation.
+# ============================================================
+quint_colors = [GREY, SKYBLU, GREEN, ORANGE, BLUE]
+data_F = [s4[s4["quintile"] == q]["delta_rmse"].values for q in range(1, 6)]
+pos_F = np.arange(1, 6)
+bp = axF.boxplot(data_F, positions=pos_F, widths=0.6, patch_artist=True,
+                 showfliers=False, medianprops={"color": "black", "lw": 1.1})
+for patch, c in zip(bp["boxes"], quint_colors):
+    patch.set_facecolor(c); patch.set_alpha(0.8); patch.set_edgecolor("#555")
+for w in bp["whiskers"]:
+    w.set_color("#555"); w.set_linewidth(0.9)
+for cap in bp["caps"]:
+    cap.set_color("#555"); cap.set_linewidth(0.9)
+axF.axhline(0, color=RED, lw=1.0, ls="--",
+            label="GP = mean (no RMSE advantage)")
+# median Δ label per quintile
+mi_med = s4.groupby("quintile")["morans_i"].median()
+d_med = s4.groupby("quintile")["delta_rmse"].median()
+ymax = max(np.nanmax(np.concatenate(data_F)), 0.0)
+for q in range(1, 6):
+    axF.annotate(f"med\n{d_med[q]:+.3f}", xy=(q, ymax * 0.96),
+                 fontsize=6.2, ha="center", color="#333")
+axF.set_xticks(pos_F)
+axF.set_xticklabels(
+    [f"Q{q}\nI={mi_med[q]:+.2f}" for q in range(1, 6)],
+    fontsize=6.8,
+)
+axF.set_xlabel("Moran's I quintile  (Q1 = low → Q5 = high spatial signal)", fontsize=8)
+axF.set_ylabel("Δ RMSE  (spaGAPA-GP − mean)", fontsize=8)
+axF.set_title("Per-gene RMSE gap is positive (mean wins); gap widens at high spatial signal",
+              loc="left", fontsize=8.2)
+axF.legend(loc="upper left", fontsize=6.4, handlelength=1.2)
+axF.tick_params(labelsize=7)
+# mean Δ line for context
+mean_delta = s4["delta_rmse"].mean()
+frac_gp = (s4["delta_rmse"] < 0).mean() * 100
+axF.text(0.5, -0.30,
+         f"n = {len(s4)} genes (GSE183456, 20% hold-out).  Mean Δ = {mean_delta:+.3f};  "
+         f"spaGAPA-GP beats mean in only {frac_gp:.0f}% of genes.\n"
+         f"spaGAPA-GP's value is spatial reconstruction + calibrated uncertainty + scalable inference, not RMSE.",
+         transform=axF.transAxes, fontsize=6.2, ha="center",
+         style="italic", color="#555")
+panel_label(axF, "F", x=-0.10, y=1.08)
 
 save(fig, "fig2_spatial_vs_mean_benchmark.png")
 print("Figure 2 done")

@@ -2,9 +2,11 @@
 """Supplementary Figure S4: Mean-baseline stratification.
 
 Box plot of (GP RMSE − mean RMSE) per gene, stratified by the gene's spatial
-signal (Moran's I quintile). Shows GP's advantage over the per-gene mean
-concentrates in high-spatial-signal genes; for spatially-flat genes the mean is
-hard to beat.
+signal (Moran's I quintile). On these sparse Visium APA data the per-gene mean
+is a strong RMSE baseline: GP beats it in only a minority of genes (~15%), and
+the GP−mean RMSE gap does not shrink with spatial signal — if anything the
+high-spatial-signal quintile shows the *largest* positive median Δ (GP worse),
+so the GP advantage does NOT grow with spatial signal.
 
 Pipeline (cached to _cache/s4_stratification.csv):
   - Load GSE183456 apa matrix + coordinates.
@@ -148,7 +150,7 @@ def main():
                         fontsize=7.5)
     axA.set_xlabel("Moran's I quintile (gene-level spatial autocorrelation)")
     axA.set_ylabel("Δ RMSE  (GP − mean)")
-    axA.set_title("GP advantage grows with spatial signal", loc="left", fontsize=9.5)
+    axA.set_title("Mean is a strong baseline; GP advantage does not grow with spatial signal", loc="left", fontsize=9.5)
     axA.legend(loc="upper left", fontsize=7.5)
     panel_label(axA, "A", x=-0.07, y=1.05)
 
@@ -163,7 +165,7 @@ def main():
     axB.plot(trend["mi"], trend["d"], color=ORANGE, lw=2.2, marker="o", ms=4, label="median Δ RMSE (binned)")
     axB.set_xlabel("Moran's I (per gene)")
     axB.set_ylabel("Δ RMSE  (GP − mean)")
-    axB.set_title("Δ RMSE vs gene Moran's I", loc="left", fontsize=9.5)
+    axB.set_title("Δ RMSE flat or rising with Moran's I (GP gap not narrowing)", loc="left", fontsize=9.5)
     axB.legend(loc="upper left", fontsize=7.5)
     panel_label(axB, "B", x=-0.07, y=1.05)
 

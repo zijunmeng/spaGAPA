@@ -1,6 +1,8 @@
 """Figure 3: Conformal marginal coverage (6 panels).
 
-11 samples, 80/90/95% nominal. Empirical lands within 0.3% of nominal.
+11 samples, 80/90/95% nominal. Pooled empirical coverage 0.8005 / 0.8996 /
+0.9497; mean abs deviation 0.21% / 0.16% / 0.10% and max deviation 0.49% /
+0.47% / 0.24% respectively (so the 80% level is NOT strictly within 0.2%).
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -102,9 +104,14 @@ axC.set_xlim(0.74, 0.97); axC.set_ylim(0.78, 0.965)
 axC.set_xlabel("Nominal coverage (1−α)")
 axC.set_ylabel("Empirical coverage")
 axC.legend(loc="upper left", fontsize=7)
-# annotate
-axC.annotate(f"Mean abs dev: 0.21%\n(80%), 0.16% (90%), 0.10% (95%)",
-             xy=(0.90, pool_y[1]), xytext=(0.78, 0.83), fontsize=6.8, color=BLUE,
+# annotate: report MAD and max deviation per level, precisely (from summary.json).
+# 80%: MAD 0.21%, max 0.49%; 90%: MAD 0.16%, max 0.47%; 95%: MAD 0.10%, max 0.24%.
+# NB: 80% MAD = 0.21%, so a blanket "within 0.2%" claim does NOT hold for 80%.
+axC.annotate(f"MAD / max dev vs nominal\n"
+             f"80%: 0.21% / 0.49%\n"
+             f"90%: 0.16% / 0.47%\n"
+             f"95%: 0.10% / 0.24%",
+             xy=(0.90, pool_y[1]), xytext=(0.775, 0.825), fontsize=6.4, color=BLUE,
              arrowprops=dict(arrowstyle="->", color=BLUE, lw=0.8))
 panel_label(axC, "C")
 
@@ -151,80 +158,81 @@ axE.text(0.5, -0.22, "D ≈ same width as A → tighter,\nadaptive intervals wit
          transform=axE.transAxes, ha="center", fontsize=6.8, style="italic", color="#444")
 panel_label(axE, "E")
 
-# ---------------- Panel F: spatial instance ----------------
-# Use the GSE183456 conformal data to show one gene: posterior mean + width + error + covered/uncovered
-apa = pd.read_csv("/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/data/processed/gse183456_gsm6047774_scapatrap/apa_matrix.csv", index_col=0)
-coord = pd.read_csv("/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/data/processed/gse183456_gsm6047774_scapatrap/coordinates.csv", index_col=0)
-apa = apa[coord.index]
-x = coord["x"].values; y = coord["y"].values
-# pick a gene with moderate observed fraction
-obs_frac = (apa > 0).mean(axis=1)
-cand = apa[(obs_frac > 0.15) & (obs_frac < 0.30)]
-gene = cand.var(axis=1).sort_values(ascending=False).index[2]
-row = apa.loc[gene].values.astype(float)
-rng = np.random.RandomState(7)
-mask = rng.rand(len(row)) < 0.20
-# simple impute for visual
-def gp_smooth(v, x, y, mask, L=300):
-    oi = np.where(~mask)[0]
-    if len(oi)==0: return np.full_like(v, v.mean())
-    xo, yo, vo = x[oi], y[oi], v[oi]
-    out = np.empty_like(v)
-    inv = 1.0/(2*L*L)
-    for i in range(len(v)):
-        w = np.exp(-((xo-x[i])**2+(yo-y[i])**2)*inv)
-        sw = w.sum()
-        out[i] = (w*vo).sum()/sw if sw>0 else vo.mean()
-    return out
-mu = gp_smooth(row, x, y, mask)
-err = np.abs(mu - row)
-# uncertainty proxy from local residual variance
-def local_unc(v, x, y, mask, L=300):
-    oi = np.where(~mask)[0]
-    if len(oi)==0: return np.full_like(v, 0.1)
-    xo, yo, vo = x[oi], y[oi], v[oi]
-    out = np.empty_like(v)
-    inv = 1.0/(2*L*L)
-    for i in range(len(v)):
-        w = np.exp(-((xo-x[i])**2+(yo-y[i])**2)*inv)
-        sw = w.sum()
-        m = (w*vo).sum()/sw if sw>0 else vo.mean()
-        var = (w*(vo-m)**2).sum()/sw if sw>0 else 0
-        out[i] = np.sqrt(max(var,1e-6))
-    return out
-unc = local_unc(row, x, y, mask)
-q = np.quantile(np.abs(row[~mask]-mu[~mask]), 0.90)
-covered = np.abs(row - mu) <= (q + unc)
-# 4 subpanels: mean, width, error, covered/uncovered
-axF.axis("off")
-axF.set_title(f"Spatial instance: gene {gene[:14]} (GSE183456)", loc="left", fontsize=9)
-panel_label(axF, "F", x=-0.06, y=1.10)
+# ---------------- Panel F: spatial instance (REAL spaGAPA posterior) ----------------
+# Per-spot data produced by scripts/main_figures/_fig3F_dump_perspot.py: runs the
+# actual SparseGPImputer on one gene (peak_20919; Moran's I=+0.081, obs-frac=0.22)
+# then split-conformal (20% held out, 50/50 calibrate/test, qhat = |y-yhat|
+# quantile on calibration half). mu/sigma are the real spaGAPA posterior; the
+# interval [mu-qhat, mu+qhat] is an honest split-conformal interval at 90%.
 import matplotlib.gridspec as gridspec
-# create inset subplots within axF region
+GENE_F = "peak_20919"
+perspot_csv = f"{DATA}/main_figures/_data/fig3F_{GENE_F}_perspot.csv"
+psd = pd.read_csv(perspot_csv)
+x = psd["x"].values
+y = psd["y"].values
+mu = psd["posterior_mean"].values
+sigma = psd["sigma"].values
+abs_err = psd["abs_error"].values            # NaN where unobserved
+observed = psd["observed"].values.astype(bool)
+covered = psd["covered_90"].values.astype(bool)   # 1 only where observed & in interval
+qhat = float(psd["qhat"].iloc[0])
+n_obs = int(observed.sum())
+n_cov = int(covered.sum())
+
+axF.axis("off")
+axF.set_title(f"Per-spot spaGAPA posterior + 90% conformal interval\n"
+              f"{GENE_F}, GSE183456 (n={n_obs} observed spots)", loc="left", fontsize=8)
+panel_label(axF, "F", x=-0.06, y=1.10)
 pos = axF.get_position()
-sub = gridspec.GridSpec(1, 4, left=pos.x0, right=pos.x1, bottom=pos.y0+0.02, top=pos.y0+pos.height-0.05, wspace=0.05)
-panels = [(mu, "viridis", "Posterior mean", None),
-          (unc*2*q, "magma", "Interval width", None),
-          (err, "Reds", "|error|", None),
-          (covered.astype(int), "RdYlGn", "Covered", None)]
-for i, (pdat, cm, lab, _) in enumerate(panels):
+sub = gridspec.GridSpec(1, 4, left=pos.x0, right=pos.x1,
+                        bottom=pos.y0+0.04, top=pos.y0+pos.height-0.08, wspace=0.05)
+
+# tile order: posterior mean | local uncertainty sigma | |error| (observed) | covered/miss
+def _spatial_ax(i, title):
     axm = fig.add_subplot(sub[i])
-    if "Covered" in lab:
-        cov_color = np.where(covered, GREEN, RED)
-        axm.scatter(x, y, c=cov_color, s=3.0, rasterized=True)
-    else:
-        if "error" in lab.lower():
-            vm = max(err.max(), 0.001)
-        elif "width" in lab.lower():
-            vm = (unc*2*q).max()
-        else:
-            vm = np.percentile(mu, 99)
-        axm.scatter(x, y, c=pdat, s=3.0, cmap=cm, vmin=0, vmax=vm, rasterized=True)
     axm.set_xticks([]); axm.set_yticks([])
+    axm.set_aspect("equal")
     for s in axm.spines.values(): s.set_linewidth(0.5)
-    axm.set_title(lab, fontsize=7, fontweight="bold")
-axF.text(0.5, 0.02, "Green = true APA within 90% interval   ·   Red = miss",
-         transform=axF.transAxes, ha="center", fontsize=6.8, style="italic", color="#444")
+    axm.set_title(title, fontsize=6.8, fontweight="bold")
+    axm.set_rasterized(True)
+    return axm
+
+# 1) posterior mean (ALL spots, incl. imputed)
+vm_mu = np.percentile(mu, 99)
+axm = _spatial_ax(0, "Posterior mean μ")
+sc = axm.scatter(x, y, c=mu, s=2.6, cmap="viridis", vmin=0, vmax=vm_mu, rasterized=True)
+cb = fig.colorbar(sc, ax=axm, fraction=0.046, pad=0.04, shrink=0.85)
+cb.ax.tick_params(labelsize=5.5); cb.outline.set_linewidth(0.4)
+
+# 2) local uncertainty sigma (per-spot posterior SD, ALL spots)
+axm = _spatial_ax(1, "Posterior σ")
+sc = axm.scatter(x, y, c=sigma, s=2.6, cmap="magma", vmin=0,
+                 vmax=np.percentile(sigma, 99), rasterized=True)
+cb = fig.colorbar(sc, ax=axm, fraction=0.046, pad=0.04, shrink=0.85)
+cb.ax.tick_params(labelsize=5.5); cb.outline.set_linewidth(0.4)
+
+# 3) |error| only on observed spots (truth known); unobserved = grey background
+axm = _spatial_ax(2, "|observed − μ|")
+axm.scatter(x, y, c=GREY, s=2.6, alpha=0.25, rasterized=True)   # all spots faint
+vm_e = np.nanmax(abs_err) if np.isfinite(np.nanmax(abs_err)) else 0.001
+sc = axm.scatter(x[observed], y[observed], c=abs_err[observed], s=2.8,
+                 cmap="Reds", vmin=0, vmax=vm_e, rasterized=True)
+cb = fig.colorbar(sc, ax=axm, fraction=0.046, pad=0.04, shrink=0.85)
+cb.ax.tick_params(labelsize=5.5); cb.outline.set_linewidth(0.4)
+
+# 4) covered (green) vs miss (red) among observed; unobserved = grey
+axm = _spatial_ax(3, f"Covered @90% (q̂={qhat:.2f})")
+axm.scatter(x, y, c=GREY, s=2.6, alpha=0.20, rasterized=True)
+miss = observed & (~covered)
+axm.scatter(x[covered], y[covered], c=GREEN, s=3.2, rasterized=True, label="covered")
+axm.scatter(x[miss],     y[miss],     c=RED,   s=5.0, rasterized=True, label="miss",
+            marker="X")
+axm.legend(loc="lower left", fontsize=5.5, markerscale=0.6, handletextpad=0.1)
+
+axF.text(0.5, 0.005,
+         f"Interval = μ ± q̂, q̂={qhat:.3f} (90% split-conformal)   ·   "
+         f"observed coverage {n_cov}/{n_obs} = {n_cov/n_obs:.2f}",
+         transform=axF.transAxes, ha="center", fontsize=6.2, style="italic", color="#444")
 
 save(fig, "fig3_conformal_marginal_coverage.png")
 print("Figure 3 done")

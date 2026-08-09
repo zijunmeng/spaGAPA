@@ -6,15 +6,16 @@ Panel A: Leiden resolution sweep (ARI/NMI vs resolution) for each of the 4
          expression_apa). The chosen "best" resolution per config is marked.
 Panel B: Weight-configuration robustness: ARI/NMI under the 4 weight regimes
          (each at its best Leiden resolution). The result is stable across
-         weight choices (a proxy for graph-construction robustness, since
-         random-seed sweeps were not stored — noted in caption).
+         weight choices, i.e. the figure is a weight-configuration robustness
+         test (NOT a random-seed stability test).
 
 Data:
   pipeline_output/mob_domain_recovery/spagapa_metrics.json
 
-Note: The metrics file stores only a single random seed per resolution (random-
-seed stability across runs was not persisted); the 4 weight configurations
-serve as the robustness axis. This is stated in the figure caption.
+Note: The metrics file stores a single run per (configuration, resolution), so
+random-seed stability is NOT assessed here; the robustness axis is the 4 weight
+configurations (spatial/expression/APA mixing). This is stated in the figure
+caption.
 """
 import os, sys, json
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "8")
@@ -89,7 +90,7 @@ def main():
     axB.set_ylim(0, 0.82)
     axB.set_ylabel("Best-resolution score")
     axB.set_xlabel("Weight configuration")
-    axB.set_title("Robustness across weight configs\n(each at its best resolution)", loc="left", fontsize=9.5)
+    axB.set_title("Weight-configuration robustness\n(each config at its best resolution)", loc="left", fontsize=9.5)
     axB.legend(loc="upper right", fontsize=7.5)
     panel_label(axB, "B", x=-0.10, y=1.05)
 
@@ -97,8 +98,8 @@ def main():
                  fontsize=11, fontweight="bold", y=1.01)
     fig.text(0.5, -0.05,
              f"n = {m['n_spots']} spots, {n_true} true MOB layers. "
-             "Note: per-seed stability sweeps were not persisted; the 4 weight configurations\n"
-             "(spatial/expression/APA mixing) are shown as the robustness axis instead.",
+             "This is a weight-configuration robustness test (4 spatial/expression/APA weightings\n"
+             "× Leiden resolution); random-seed stability across runs was not assessed here.",
              ha="center", fontsize=6.8, style="italic", color="#555")
     save_supp(fig, "supp_fig10_domain_recovery.png")
     print("[S10] done", flush=True)

@@ -1,13 +1,18 @@
 #!/usr/bin/env python
-"""Supplementary Figure S13: Batch correction — QN vs Harmony.
+"""Supplementary Figure S13: Batch correction — QN vs Harmony (APA matrix).
 
 Panel A: mean pairwise PCC (biological signal recovery) vs batch signal
-         (residual batch artefact) for each correction method. spaGAPA-QN
-         recovers most of the PCC gain of Harmony while keeping batch signal
-         near zero; Harmony over-corrects (variance collapsed).
+         (residual batch artefact) for each correction method. On the APA matrix
+         spaGAPA-QN recovers most of the PCC gain of Harmony while keeping batch
+         signal near zero; Harmony collapses per-gene variance.
 Panel B: variance preservation — per-gene variance ratio (corrected / before)
          distribution. QN is tightly centred at 1 (variance preserved);
-         Harmony collapses variance (median ratio ≈ 0).
+         Harmony drives the ratio toward 0.
+
+CAVEAT: Harmony was designed for expression counts, not APA matrices, so the
+comparison here is APA-specific. Batch correction is Pillar 2 and is still under
+evaluation; the Harmony "over-correction" reading should be treated as a
+preliminary APA-matrix observation, not a general conclusion about Harmony.
 
 Data:
   pipeline_output/bias_correction_v2/harmony_comparison.csv
@@ -64,7 +69,7 @@ def main():
     axA.axvline(0, color="#888", lw=0.7, ls=":")
     axA.set_xlabel("Batch signal  (residual artefact; lower = better)")
     axA.set_ylabel("Mean pairwise PCC  (biological signal; higher = better)")
-    axA.set_title("QN recovers biological signal without Harmony's over-correction", loc="left", fontsize=9.5)
+    axA.set_title("QN recovers biological signal without Harmony's variance collapse (APA matrix)", loc="left", fontsize=9.5)
     # Ideal region shading.
     axA.axvspan(-0.01, 0.01, alpha=0.08, color=GREEN, zorder=0)
     axA.text(0.02, axA.get_ylim()[0] + 0.02, "low batch\nsignal", fontsize=6.5, color=GREEN, style="italic")
@@ -98,13 +103,16 @@ def main():
                loc="upper left", fontsize=6.8)
     panel_label(axB, "B", x=-0.10, y=1.05)
 
-    fig.suptitle("Supplementary Figure S13 — Batch correction: spaGAPA-QN vs Harmony (GSE237183)",
-                 fontsize=11, fontweight="bold", y=1.01)
-    fig.text(0.5, -0.04,
-             f"n = {h.set_index('method').loc['before','n_genes'] if 'n_genes' in h.columns else '1,164'} genes. "
-             "Harmony maximises PCC but collapses per-gene variance (over-correction); "
-             "spaGAPA-QN preserves variance near 1.0 while recovering most of the PCC gain.",
-             ha="center", fontsize=6.8, style="italic", color="#555")
+    fig.suptitle("Supplementary Figure S13 — Batch correction on the APA matrix: spaGAPA-QN vs Harmony (GSE237183)",
+                 fontsize=10.5, fontweight="bold", y=1.01)
+    n_genes_txt = f"n = {h.set_index('method').loc['before','n_genes']}" if 'n_genes' in h.columns else 'n = 1,164 genes'
+    fig.text(0.5, -0.06,
+             f"{n_genes_txt}. On the APA matrix Harmony maximises pairwise PCC but collapses per-gene variance, "
+             "while spaGAPA-QN keeps the variance ratio near 1.0 and recovers most of the PCC gain. "
+             "Caveat: Harmony was designed for expression counts, not APA matrices, so this is an APA-specific "
+             "comparison; batch correction (Pillar 2) is still under evaluation and the variance-collapse reading "
+             "is preliminary, not a general statement about Harmony.",
+             ha="center", fontsize=6.5, style="italic", color="#555")
     save_supp(fig, "supp_fig13_batch_correction.png")
     print("[S13] done", flush=True)
 
