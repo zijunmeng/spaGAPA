@@ -4,14 +4,18 @@
 Panels:
   A: Empirical vs nominal coverage at 80/90/95% (grouped bar, per sample).
   B: Interval width = 2*qhat at each level (per sample).
-  C: Interval score (Gneiting & Raftery 2007) per sample — an approximation
-     derived from the per-sample qhat and RMSE (not computed per-spot; see
-     caption). Lower is better.
+  C: Interval score (Gneiting & Raftery 2007, "Winkler score") per sample,
+     computed exactly per observation from the persisted (y_true, lo, hi)
+     bounds (calibrate_uncertainty_all_datasets.py now writes
+     per_observation_bounds.npz + winkler_{80,90,95} columns). Lower = better.
+     If the per-observation bounds are unavailable it falls back to the
+     qhat+RMSE approximation and labels the panel accordingly.
   D: Empirical subgroup coverage by uncertainty quintile (deviation from nominal
      90%), summarised across samples — a marginal, not conditional, diagnostic.
 
 Data:
-  pipeline_output/conformal_validation/all_samples_coverage.csv  (11 samples)
+  pipeline_output/conformal_validation/all_samples_coverage.csv  (11 samples, incl. winkler_{80,90,95})
+  pipeline_output/conformal_validation/per_observation_bounds.npz (per-obs y/lo/hi)
   pipeline_output/conformal_conditional_coverage/by_uncertainty_quintile.csv
 """
 import os, sys
@@ -40,9 +44,8 @@ def main():
               (0.90, "coverage_90", "qhat_90", ORANGE),
               (0.95, "coverage_95", "qhat_95", GREEN)]
 
-    # Interval score approximation: width + (2/alpha) * |error| averaged via RMSE.
-    # E[score] ~ width + (2/alpha) * RMSE * (1 - coverage)  (only when y outside).
-    # This is an upper-bound-ish proxy; we mark it clearly in the caption.
+    # Panel C uses the exact per-observation Winkler (Gneiting–Raftery) score
+    # from the persisted bounds when available; see the Panel C block below.
     fig = plt.figure(figsize=(13, 10))
     gs = fig.add_gridspec(2, 2, hspace=0.42, wspace=0.27)
 
@@ -74,21 +77,38 @@ def main():
     axB.legend(title="Target", loc="upper left", fontsize=7)
     panel_label(axB, "B", x=-0.06, y=1.05)
 
-    # ---------- Panel C: interval score (proxy) ----------
+    # ---------- Panel C: interval score (Winkler) ----------
+    # Exact Gneiting–Raftery (2007) interval score, averaged per sample over the
+    # held-out test set from the persisted per-observation (y, lo, hi) bounds.
+    # S = (hi-lo) + (2/alpha)*(lo-y)*1[y<lo] + (2/alpha)*(y-hi)*1[y>hi].
+    # Falls back to the qhat+RMSE approximation only if the winkler_* columns
+    # are absent (e.g. an older cached CSV) and labels the panel accordingly.
     axC = fig.add_subplot(gs[1, 0])
-    for i, (nom, ccol, qcol, col) in enumerate(levels):
-        alpha = 1 - nom
-        width = 2 * cov[qcol]
-        # E[score] approx = width + (2/alpha)*E[|err|*1(outside)]
-        # E[|err|*1(outside)] ~ RMSE * (1-coverage) under a Gaussian error model.
-        outside_pen = (2.0 / alpha) * cov["rmse"] * (1.0 - cov[ccol])
-        score = width + outside_pen
-        axC.bar(x + (i - 1) * w, score, width=w, color=col, edgecolor="white", linewidth=0.4,
-                label=f"{int(nom*100)}%")
+    has_winkler = all(f"winkler_{lvl}" in cov.columns for _, _, lvl, _ in
+                      [(0.80, None, 80, None), (0.90, None, 90, None), (0.95, None, 95, None)])
+    if has_winkler:
+        for i, (nom, _ccol, qcol, col) in enumerate(levels):
+            lvl = int(round(nom * 100))
+            axC.bar(x + (i - 1) * w, cov[f"winkler_{lvl}"], width=w, color=col,
+                    edgecolor="white", linewidth=0.4, label=f"{int(nom*100)}%")
+        score_ylabel = "Interval score  (Gneiting–Raftery / Winkler; lower = better)"
+        score_title = "Interval score — exact Winkler score per held-out spot"
+        score_formal = True
+    else:
+        for i, (nom, ccol, qcol, col) in enumerate(levels):
+            alpha = 1 - nom
+            width = 2 * cov[qcol]
+            outside_pen = (2.0 / alpha) * cov["rmse"] * (1.0 - cov[ccol])
+            score = width + outside_pen
+            axC.bar(x + (i - 1) * w, score, width=w, color=col, edgecolor="white",
+                    linewidth=0.4, label=f"{int(nom*100)}%")
+        score_ylabel = "Interval score (approx. from $\\hat{q}$ + RMSE; lower = better)"
+        score_title = "Interval score (approximation — per-obs bounds unavailable)"
+        score_formal = False
     axC.set_xticks(x); axC.set_xticklabels(labels, fontsize=6.3, rotation=55, ha="right")
-    axC.set_ylabel("Interval score (approx. from $\\hat{q}$ + RMSE; lower = better)")
+    axC.set_ylabel(score_ylabel)
     axC.set_xlabel("Sample")
-    axC.set_title("Interval score (approximation from $\\hat{q}$ + RMSE)", loc="left")
+    axC.set_title(score_title, loc="left")
     axC.legend(title="Target", loc="upper left", fontsize=7)
     panel_label(axC, "C", x=-0.06, y=1.05)
 
@@ -117,12 +137,23 @@ def main():
 
     fig.suptitle("Supplementary Figure S6 — Full conformal coverage (11 samples × 80/90/95%)",
                  fontsize=11, fontweight="bold", y=0.995)
-    # Caption note on interval-score approximation.
-    fig.text(0.5, 0.012,
-             "Panel C interval score is the Gneiting–Raftery score approximated from per-sample qhat and RMSE "
-             "(width + (2/α)·RMSE·(1−coverage)); it is NOT computed per spot, only an aggregate proxy. "
-             "Coverage (A) and width (B) are exact; Panel D is an empirical subgroup check, not a formal "
-             "conditional-coverage guarantee.",
+    # Caption note on interval score (formal per-observation Winkler, or the
+    # approximation if the per-obs bounds were unavailable).
+    if score_formal:
+        score_note = (
+            "Panel C is the exact Gneiting–Raftery (2007) interval (Winkler) score per held-out spot, "
+            "S = (hi−lo) + (2/α)·(lo−y)·1[y<lo] + (2/α)·(y−hi)·1[y>hi], averaged per sample over the test set "
+            "(bounds persisted in per_observation_bounds.npz). "
+            "Coverage (A) and width (B) are exact; Panel D is an empirical subgroup check, not a formal "
+            "conditional-coverage guarantee.")
+    else:
+        score_note = (
+            "Panel C interval score is the Gneiting–Raftery score approximated from per-sample qhat and RMSE "
+            "(width + (2/α)·RMSE·(1−coverage)); the per-observation (y, lo, hi) bounds were unavailable so the "
+            "exact Winkler score could not be computed — only this aggregate proxy. "
+            "Coverage (A) and width (B) are exact; Panel D is an empirical subgroup check, not a formal "
+            "conditional-coverage guarantee.")
+    fig.text(0.5, 0.012, score_note,
              ha="center", fontsize=6.8, style="italic", color="#555")
     save_supp(fig, "supp_fig06_conformal_coverage.png")
     print("[S6] done", flush=True)

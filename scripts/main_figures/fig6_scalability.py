@@ -1,11 +1,12 @@
-"""Figure 6: Scalability (5 panels).
+"""Figure 6: Scalability (4 panels).
 
-Panel A reports EMPIRICAL scaling slopes fit to measured runtimes
-(runtime_table.csv); theoretical complexity is shown only as a reference
-footnote, not as a proven claim about competitor implementations.
-Panel E reports measured spatial fidelity vs. wall time from
-benchmark_mean_transparent/transparent_comparison.csv (honest Pareto
-narrative; spatial-KNN is highest-fidelity but non-scalable / non-probabilistic).
+Panel A merges the empirical power-law slopes into the runtime scatter
+(slope annotated per method on the same axes), with an implementation
+caveat footnote (slopes reflect deployed implementations, not textbook
+worst-case bounds). Panel D reports measured spatial fidelity vs. wall time
+from benchmark_mean_transparent/transparent_comparison.csv (honest Pareto
+narrative; spatial-KNN is highest-fidelity but non-scalable /
+non-probabilistic).
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -38,19 +39,18 @@ RUN_LABELS = {
 RUN_ORDER = ["spaGAPA-highres_fast", "spaGAPA-highres_accuracy", "stAPAminer", "spvAPA"]
 
 # ---------------------------------------------------------------------------
-# Layout: PAGE_WIDTH_IN wide, 5 panels.
-#   Row 0: A (empirical scaling, spans 3 cols)
-#   Row 1: B | C  (runtime log-log, peak memory)
-#   Row 2: D | E  (completion matrix, fidelity-runtime Pareto)
+# Layout: PAGE_WIDTH_IN wide, 4 panels.
+#   Row 0: A (runtime scaling w/ fitted slopes, spans full width)
+#   Row 1: B | C  (peak memory, completion matrix)
+#   Row 2: D      (spatial fidelity-runtime Pareto)
 # ---------------------------------------------------------------------------
-fig = plt.figure(figsize=(PAGE_WIDTH_IN, 7.4))
+fig = plt.figure(figsize=(PAGE_WIDTH_IN, 7.2))
 gs = fig.add_gridspec(3, 6, hspace=0.62, wspace=0.55,
-                      left=0.075, right=0.975, top=0.94, bottom=0.085)
+                      left=0.085, right=0.975, top=0.95, bottom=0.085)
 axA = fig.add_subplot(gs[0, 0:6])
 axB = fig.add_subplot(gs[1, 0:3])
 axC = fig.add_subplot(gs[1, 3:6])
-axD = fig.add_subplot(gs[2, 0:3])
-axE = fig.add_subplot(gs[2, 3:6])
+axD = fig.add_subplot(gs[2, 0:6])
 
 # =====================================================================
 # Panel A: EMPIRICAL scaling slopes (measured runtimes + fitted power law)
@@ -108,65 +108,34 @@ axA.legend(handles=handles + extra, loc="upper left", fontsize=6.3,
            ncol=2, columnspacing=1.0)
 # footnote: empirical vs theoretical
 axA.text(0.005, -0.30,
-         "Empirical power-law slope = local log(time)/log(N) over the measured range "
-         "(dashed). Slopes reflect the deployed implementations and may differ from "
-         "textbook complexity;\ne.g. approximate-neighbour structures in WNN/KNN "
-         "routines can flatten observed scaling below the worst-case bound.",
+         "Empirical slope = log(time)/log(N) over the measured range (dashed); "
+         "reflects the deployed implementations and may differ from textbook\n"
+         "complexity (e.g. approximate-neighbour structures can flatten observed "
+         "scaling below the worst-case bound).",
          transform=axA.transAxes, ha="left", va="top", fontsize=5.9,
          style="italic", color="#555")
-panel_label(axA, "A")
+panel_label(axA, "A", x=-0.085)
 
 # =====================================================================
-# Panel B: runtime scaling (log-log, measured points only)
+# Panel B: peak memory scaling
 # =====================================================================
-axB.set_title("Runtime vs. spots", loc="left")
+axB.set_title("Peak memory vs. spots", loc="left")
 for m in RUN_ORDER:
     sub = rt[(rt.method == m) & (rt.status == "COMPLETED")].sort_values("n_spots")
     if len(sub) == 0:
         continue
-    axB.plot(sub["n_spots"], sub["time_s"], "o-", color=RUN_COLORS[m], lw=1.6,
-             ms=5.5, markeredgecolor="white", mew=0.5, label=RUN_LABELS[m])
-# mark failures
-for m in RUN_ORDER:
-    fail = rt[(rt.method == m) & (rt.status != "COMPLETED") & (rt.status != "SKIPPED")]
-    for _, row in fail.iterrows():
-        marker = "x" if row["status"] == "TIMEOUT" else "v"
-        ec = None if marker == "x" else "black"
-        axB.scatter([row["n_spots"]], [row["time_s"]], marker=marker, s=55,
-                    color=RUN_COLORS[m], edgecolor=ec, lw=0.5, zorder=6)
-axB.set_xscale("log"); axB.set_yscale("log")
+    axB.plot(sub["n_spots"], sub["peak_mem_mb"] / 1024, "s-", color=RUN_COLORS[m],
+             lw=1.6, ms=5.5, markeredgecolor="white", label=RUN_LABELS[m])
+axB.set_xscale("log")
 axB.set_xlabel("Spots N")
-axB.set_ylabel("Wall time (s)")
-axB.axhline(1200, color=RED, ls=":", lw=0.9, alpha=0.7)
-axB.text(900, 1280, "1200 s cap", fontsize=6.0, color=RED, va="bottom")
-fail_legend = [plt.Line2D([0], [0], marker="x", color="black", ls="None", mew=0,
-                          ms=5, label="TIMEOUT"),
-               plt.Line2D([0], [0], marker="v", color="black", ls="None",
-                          ms=5, label="FAILED")]
-handles, labels = axB.get_legend_handles_labels()
-axB.legend(handles=handles + fail_legend, loc="upper left", fontsize=5.8)
+axB.set_ylabel("Peak memory (GB)")
+axB.legend(loc="upper left", fontsize=5.8)
 panel_label(axB, "B")
 
 # =====================================================================
-# Panel C: peak memory scaling
+# Panel C: completion matrix
 # =====================================================================
-axC.set_title("Peak memory vs. spots", loc="left")
-for m in RUN_ORDER:
-    sub = rt[(rt.method == m) & (rt.status == "COMPLETED")].sort_values("n_spots")
-    if len(sub) == 0:
-        continue
-    axC.plot(sub["n_spots"], sub["peak_mem_mb"] / 1024, "s-", color=RUN_COLORS[m],
-             lw=1.6, ms=5.5, markeredgecolor="white", label=RUN_LABELS[m])
-axC.set_xscale("log")
-axC.set_xlabel("Spots N")
-axC.set_ylabel("Peak memory (GB)")
-axC.legend(loc="upper left", fontsize=5.8)
-panel_label(axC, "C")
-
-# =====================================================================
-# Panel D: completion matrix
-# =====================================================================
-axD.set_title("Completion across scales", loc="left")
+axC.set_title("Completion across scales", loc="left")
 scales = sorted(rt["n_spots"].unique())
 mat = np.full((len(RUN_ORDER), len(scales)), np.nan)
 status_mat = np.empty(mat.shape, dtype=object)
@@ -183,32 +152,32 @@ for i, m in enumerate(RUN_ORDER):
             else:
                 mat[i, j] = 0
 cmap = ListedColormap([RED, "#F0E442", GREEN])
-im = axD.imshow(mat, cmap=cmap, vmin=0, vmax=1, aspect="auto")
-axD.set_yticks(range(len(RUN_ORDER)))
-axD.set_yticklabels([RUN_LABELS[m] for m in RUN_ORDER], fontsize=6.5)
-axD.set_xticks(range(len(scales)))
-axD.set_xticklabels([f"{s//1000}k" for s in scales], fontsize=6.5)
-axD.set_xlabel("Scale")
-axD.tick_params(axis="x", top=True, bottom=False, labeltop=True, labelbottom=False)
-axD.tick_params(axis="x", which="both", length=2.5)
+im = axC.imshow(mat, cmap=cmap, vmin=0, vmax=1, aspect="auto")
+axC.set_yticks(range(len(RUN_ORDER)))
+axC.set_yticklabels([RUN_LABELS[m] for m in RUN_ORDER], fontsize=6.5)
+axC.set_xticks(range(len(scales)))
+axC.set_xticklabels([f"{s//1000}k" for s in scales], fontsize=6.5)
+axC.set_xlabel("Scale")
+axC.tick_params(axis="x", top=True, bottom=False, labeltop=True, labelbottom=False)
+axC.tick_params(axis="x", which="both", length=2.5)
 for i in range(mat.shape[0]):
     for j in range(mat.shape[1]):
         s = status_mat[i, j]
         if s:
             txt = "✓" if s == "COMPLETED" else ("—" if s == "SKIPPED" else "✗")
-            axD.text(j, i, txt, ha="center", va="center", fontsize=8,
+            axC.text(j, i, txt, ha="center", va="center", fontsize=8,
                      fontweight="bold",
                      color="white" if s == "COMPLETED" else "black")
 leg = [Patch(fc=GREEN, label="Completed"),
        Patch(fc="#F0E442", label="Skipped (out of scope)"),
        Patch(fc=RED, label="Timeout / OOM")]
-axD.legend(handles=leg, loc="upper center", fontsize=5.6,
+axC.legend(handles=leg, loc="upper center", fontsize=5.6,
            bbox_to_anchor=(0.5, -0.16), ncol=3, columnspacing=0.8,
            handlelength=1.0, handletextpad=0.3)
-panel_label(axD, "D")
+panel_label(axC, "C")
 
 # =====================================================================
-# Panel E: spatial-fidelity vs. runtime Pareto (honest narrative)
+# Panel D: spatial-fidelity vs. runtime Pareto (honest narrative)
 #   Real data (2-dataset mean):
 #     spatial-KNN  fid=0.91  t=3.2s   (fastest-fidelity, non-probabilistic)
 #     spaGAPA-GP   fid=0.42  t=23.5s  (calibrated probabilistic inference)
@@ -216,7 +185,7 @@ panel_label(axD, "D")
 #     spvAPA       fid=0.04  t=165.4s
 #     mean         fid=0.00  t=2.5s   (zero spatial signal)
 # =====================================================================
-axE.set_title("Spatial fidelity vs. runtime", loc="left")
+axD.set_title("Spatial fidelity vs. runtime", loc="left")
 tc = pd.read_csv(f"{DATA}/benchmark_mean_transparent/transparent_comparison.csv")
 tc = tc[tc.method.isin(["spaGAPA-GP", "mean", "stAPAminer", "spvAPA", "spatial-KNN"])] \
        .dropna(subset=["spatial_fidelity", "wall_time_s"])
@@ -227,46 +196,47 @@ E_COLORS = {"spaGAPA-GP": BLUE, "mean": GREY, "stAPAminer": ORANGE,
             "spvAPA": RED, "spatial-KNN": GREEN}
 E_LABELS = {"spaGAPA-GP": "spaGAPA-GP", "mean": "Mean", "stAPAminer": "stAPAminer",
             "spvAPA": "spvAPA", "spatial-KNN": "Spatial-KNN"}
-# per-point label offsets to avoid overlap
+# per-point label offsets (tuned to avoid overlap); Mean and Spatial-KNN share the
+# low-x region so Mean is pushed down-left and Spatial-KNN up-right.
 E_OFFSETS = {
     "spaGAPA-GP":  (7, 6),
-    "mean":        (5, -10),
-    "stAPAminer":  (5, 6),
-    "spvAPA":      (5, -10),
-    "spatial-KNN": (5, 6),
+    "mean":        (-4, -11),
+    "stAPAminer":  (7, 5),
+    "spvAPA":      (7, -11),
+    "spatial-KNN": (7, 5),
 }
 for _, row in agg.iterrows():
     m = row["method"]
-    axE.scatter(row["wall_time_s"], row["spatial_fidelity"], s=90,
+    axD.scatter(row["wall_time_s"], row["spatial_fidelity"], s=90,
                 color=E_COLORS[m], edgecolor="black", lw=0.7,
                 label=E_LABELS[m], zorder=5)
     dx, dy = E_OFFSETS[m]
-    axE.annotate(E_LABELS[m], (row["wall_time_s"], row["spatial_fidelity"]),
+    axD.annotate(E_LABELS[m], (row["wall_time_s"], row["spatial_fidelity"]),
                  xytext=(dx, dy), textcoords="offset points",
                  fontsize=6.2, fontweight="bold")
 # connect the two probabilistic GP-style competitors to make the speed gap visible
 gp_row = agg.set_index("method").loc["spaGAPA-GP"]
 for comp in ["stAPAminer", "spvAPA"]:
     comp_row = agg.set_index("method").loc[comp]
-    axE.annotate("", xy=(comp_row["wall_time_s"], comp_row["spatial_fidelity"]),
+    axD.annotate("", xy=(comp_row["wall_time_s"], comp_row["spatial_fidelity"]),
                  xytext=(gp_row["wall_time_s"], gp_row["spatial_fidelity"]),
                  arrowprops=dict(arrowstyle="->", color=GREY, lw=0.7,
                                  ls=":", alpha=0.6))
 
-axE.set_xlabel("Wall time (s, 2-dataset mean)")
-axE.set_ylabel("Spatial fidelity")
-axE.set_xscale("log")
-axE.set_xlim(1.5, 300)
-axE.axhline(0, color="#888", lw=0.5, ls="--")
+axD.set_xlabel("Wall time (s, 2-dataset mean)")
+axD.set_ylabel("Spatial fidelity")
+axD.set_xscale("log")
+axD.set_xlim(1.5, 300)
+axD.axhline(0, color="#888", lw=0.5, ls="--")
 # honest footnote
-axE.text(0.005, -0.30,
-         "spaGAPA-GP is ~6-7× faster than stAPAminer/spvAPA at higher spatial fidelity; "
-         "spatial-KNN yields the highest fidelity\nbut is non-probabilistic and does "
-         "not scale beyond ~4-15 k spots (Panels A-D); Mean is fastest but encodes\n"
-         "no spatial information (fidelity ≈ 0).",
-         transform=axE.transAxes, ha="left", va="top", fontsize=5.9,
+axD.text(0.005, -0.30,
+         "spaGAPA-GP is ~6-7× faster than stAPAminer/spvAPA at higher fidelity; "
+         "spatial-KNN is highest-fidelity but non-probabilistic and does not\n"
+         "scale beyond ~4-15 k spots (Panels A-C); Mean is fastest but encodes no "
+         "spatial information (fidelity ≈ 0).",
+         transform=axD.transAxes, ha="left", va="top", fontsize=5.9,
          style="italic", color="#555")
-panel_label(axE, "E")
+panel_label(axD, "D", x=-0.085)
 
 save(fig, "fig6_scalability.png")
 print("Figure 6 done")

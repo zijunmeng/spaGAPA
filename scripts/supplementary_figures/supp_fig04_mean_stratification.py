@@ -127,7 +127,7 @@ def main():
 
     # ---------- Plot ----------
     fig = plt.figure(figsize=(11, 5.5))
-    gs = fig.add_gridspec(1, 2, wspace=0.28, width_ratios=[1.1, 1.0])
+    gs = fig.add_gridspec(1, 2, wspace=0.32, width_ratios=[1.1, 1.0])
 
     # Panel A: box of Δ RMSE by Moran's I quintile.
     axA = fig.add_subplot(gs[0, 0])
@@ -165,12 +165,12 @@ def main():
     axB.plot(trend["mi"], trend["d"], color=ORANGE, lw=2.2, marker="o", ms=4, label="median Δ RMSE (binned)")
     axB.set_xlabel("Moran's I (per gene)")
     axB.set_ylabel("Δ RMSE  (GP − mean)")
-    axB.set_title("Δ RMSE flat or rising with Moran's I (GP gap not narrowing)", loc="left", fontsize=9.5)
+    axB.set_title("Δ RMSE does not fall as Moran's I grows", loc="left", fontsize=9.5)
     axB.legend(loc="upper left", fontsize=7.5)
     panel_label(axB, "B", x=-0.07, y=1.05)
 
     fig.suptitle("Supplementary Figure S4 — Mean-baseline stratification by gene-level spatial signal",
-                 fontsize=11, fontweight="bold", y=1.01)
+                 fontsize=11, fontweight="bold", y=1.04)
     # Honest caption: report what the data actually shows.
     frac_gp_beats = (res["delta_rmse"] < 0).mean() * 100
     q_hi = res[res["quintile"] == 5]

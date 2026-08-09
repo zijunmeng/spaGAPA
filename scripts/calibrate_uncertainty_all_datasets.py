@@ -100,6 +100,22 @@ def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
     return float("nan")
 
 
+def _winkler_score(y_true, lo, hi, alpha):
+    """Gneiting & Raftery (2007) mean interval score (lower = better).
+
+    S = (hi - lo) + (2/alpha)*(lo - y)*1[y < lo] + (2/alpha)*(y - hi)*1[y > hi]
+    Computed per observation then averaged — the *exact* per-observation score,
+    not a qhat+RMSE approximation.
+    """
+    y = np.asarray(y_true, dtype=float)
+    lo = np.asarray(lo, dtype=float)
+    hi = np.asarray(hi, dtype=float)
+    width = hi - lo
+    pen_lo = (2.0 / alpha) * (lo - y) * (y < lo)
+    pen_hi = (2.0 / alpha) * (y - hi) * (y > hi)
+    return float(np.mean(width + pen_lo + pen_hi))
+
+
 def _rmse_filter(err: np.ndarray, score: np.ndarray, frac: float) -> float:
     """RMSE after dropping the top `frac` points by `score` (uncertainty)."""
     err = np.asarray(err, dtype=float)
@@ -246,6 +262,10 @@ def _finish(dataset, sample, n_genes, n_spots, nn_dist, length_scale,
         "rmse_after_filter": rmse_after,
         "rmse_improvement_pct": rmse_improvement,
     }
+    # Per-observation bounds at each level, retained so supplementary figures
+    # can compute the *exact* Gneiting–Raftery interval (Winkler) score rather
+    # than the previous qhat+RMSE approximation.
+    per_obs = {"truth": test_truth}
     for alpha, level in [(0.20, 80), (0.10, 90), (0.05, 95)]:
         cal = ConformalCalibrator(alpha=alpha, mode="locally_adaptive")
         cal.fit(cal_err, cal_std)
@@ -253,12 +273,16 @@ def _finish(dataset, sample, n_genes, n_spots, nn_dist, length_scale,
         cov = evaluate_coverage(lo, hi, test_truth)
         row[f"coverage_{level}"] = cov
         row[f"qhat_{level}"] = float(cal.interval_.q_hat)
+        # exact per-observation Winkler interval score (mean over test set)
+        row[f"winkler_{level}"] = _winkler_score(test_truth, lo, hi, alpha)
+        per_obs[f"lo_{level}"] = lo
+        per_obs[f"hi_{level}"] = hi
 
     row["gp_length_scale"] = float(length_scale)
     row["gp_n_inducing"] = int(n_inducing)
     row["gp_nn_dist"] = float(nn_dist)
     row["wall_s"] = float(time.time() - t0)
-    return row, None
+    return row, None, per_obs
 
 
 def main():
@@ -281,17 +305,22 @@ def main():
 
     rows = []
     skipped = []
+    per_obs_all = {}   # sample_label -> dict of arrays (per-observation bounds)
     for dataset, sample, dir_basename in SAMPLES:
         both("")
         both(f">>> {dataset}/{sample} ({dir_basename})")
         try:
-            row, err = run_one(dataset, sample, dir_basename, rng)
-            if row is None:
+            res = run_one(dataset, sample, dir_basename, rng)
+            # run_one returns (None, err) on skip or (row, None, per_obs) on success
+            if res[0] is None:
+                err = res[1]
                 both(f"  SKIP: {err}")
                 skipped.append({"dataset": dataset, "sample": sample,
                                 "reason": err})
             else:
+                row, _err, per_obs = res
                 rows.append(row)
+                per_obs_all[f"{dataset}_{sample}"] = per_obs
                 both(f"  corr={row['raw_unc_error_corr']:.4f}  "
                      f"cov80={row['coverage_80']:.3f} "
                      f"cov90={row['coverage_90']:.3f} "
@@ -299,6 +328,9 @@ def main():
                      f"rmse={row['rmse']:.4f}->"
                      f"{row['rmse_after_filter']:.4f} "
                      f"({row['rmse_improvement_pct']:+.1f}%)  "
+                     f"IS80={row['winkler_80']:.4f} "
+                     f"IS90={row['winkler_90']:.4f} "
+                     f"IS95={row['winkler_95']:.4f}  "
                      f"[{row['wall_s']:.0f}s]")
         except Exception as e:
             tb = traceback.format_exc()
@@ -315,6 +347,20 @@ def main():
     csv_path = os.path.join(OUT_DIR, "all_samples_coverage.csv")
     df.to_csv(csv_path, index=False)
     both(f"\nWrote {csv_path}")
+
+    # Persist per-observation (y_true, lo, hi) bounds at 80/90/95% for every
+    # sample, so supplementary figures can compute exact per-observation
+    # interval scores / coverage-stratified diagnostics without re-running the
+    # GP fits. Saved as a single .npz keyed by "{dataset}_{sample}__{field}".
+    per_obs_path = os.path.join(OUT_DIR, "per_observation_bounds.npz")
+    save_map = {}
+    for skey, pod in per_obs_all.items():
+        for field, arr in pod.items():
+            save_map[f"{skey}__{field}"] = np.asarray(arr)
+    np.savez_compressed(per_obs_path, **save_map)
+    both(f"Wrote {per_obs_path} "
+         f"({len(per_obs_all)} samples, "
+         f"{sum(int(v['truth'].shape[0]) for v in per_obs_all.values())} obs)")
 
     # ---- summary ----
     summary = {

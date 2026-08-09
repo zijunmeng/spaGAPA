@@ -1,20 +1,28 @@
 #!/usr/bin/env python
 """Supplementary Figure S10: Domain recovery details on MOB.
 
-Panel A: Leiden resolution sweep (ARI/NMI vs resolution) for each of the 4
-         weight configurations (apa_dominant, balanced, spatial_apa,
-         expression_apa). The chosen "best" resolution per config is marked.
-Panel B: Weight-configuration robustness: ARI/NMI under the 4 weight regimes
-         (each at its best Leiden resolution). The result is stable across
-         weight choices, i.e. the figure is a weight-configuration robustness
-         test (NOT a random-seed stability test).
+Panel A: Leiden resolution sweep (ARI/NMI vs resolution) for every config:
+         the 4 GP-imputed APA weight schemes (apa_dominant, balanced,
+         spatial_apa, expression_apa) plus the mean-imputed APA baseline
+         (mean_apa, same weights as apa_dominant, no GP). The best resolution
+         per config is marked.
+Panel B: Best-resolution ARI/NMI per config. This is where the headline
+         expression_apa / res0.8 result (ARI 0.597, k=5) is reported: adding
+         expression (0.5 > apa 0.4) refines the recovery to all 5 anatomical
+         layers, and is shown here rather than in the main figure because the
+         main figure restricts itself to APA-dominant configs. The mean-impute
+         baseline (ARI 0.576, k=4) is also reported here for honesty: per-gene
+         mean filling already captures substantial domain structure on MOB,
+         and spaGAPA's GP imputation provides a modest improvement at this
+         config (apa_dominant 0.550) while expression refinement (0.597) does
+         the rest.
 
 Data:
   pipeline_output/mob_domain_recovery/spagapa_metrics.json
 
 Note: The metrics file stores a single run per (configuration, resolution), so
-random-seed stability is NOT assessed here; the robustness axis is the 4 weight
-configurations (spatial/expression/APA mixing). This is stated in the figure
+random-seed stability is NOT assessed here; the robustness axis is the set of
+weight configurations + the mean-impute baseline. This is stated in the figure
 caption.
 """
 import os, sys, json
@@ -41,20 +49,28 @@ def main():
         "balanced":       ORANGE,
         "spatial_apa":    GREEN,
         "expression_apa": RED,
+        "mean_apa":       GREY,
     }
     CONFIG_LABEL = {
-        "apa_dominant":   "APA-dominant (0.2/0.2/0.6)",
-        "balanced":       "Balanced (0.4/0.4/0.2)",
-        "spatial_apa":    "Spatial+APA (0.4/0/0.6)",
-        "expression_apa": "Expr+APA (0/0.4/0.6)",
+        "apa_dominant":   "APA-dominant GP (0.2/0.2/0.6)",
+        "balanced":       "Balanced GP (0.4/0.4/0.2)",
+        "spatial_apa":    "Spatial+APA GP (0.5/0/0.5)",
+        "expression_apa": "Expr+APA GP (0.1/0.5/0.4)",
+        "mean_apa":       "Mean-imputed APA (0.2/0.2/0.6, no GP)",
     }
+    # display order: mean baseline first, then APA-centric GP configs, then the
+    # expression-heavy refinement last (so the headline expression_apa result
+    # reads as an additive improvement on top of the APA-dominant base).
+    CONFIG_ORDER = ["mean_apa", "apa_dominant", "spatial_apa",
+                    "balanced", "expression_apa"]
 
     fig = plt.figure(figsize=(12, 5.3))
     gs = fig.add_gridspec(1, 2, wspace=0.22, width_ratios=[1.5, 1.0])
 
     # ---------- Panel A: resolution sweep ----------
     axA = fig.add_subplot(gs[0, 0])
-    for cfg, run in runs.items():
+    for cfg in CONFIG_ORDER:
+        run = runs[cfg]
         res = sorted(run["leiden"].keys(), key=lambda s: float(s.split("_")[1]))
         xs = [float(r.split("_")[1]) for r in res]
         aris = [run["leiden"][r]["ari"] for r in res]
@@ -67,7 +83,7 @@ def main():
         axA.scatter([bx], [ba], s=130, marker="*", color=c, edgecolor="black", lw=0.8, zorder=5)
     axA.set_xlabel("Leiden resolution")
     axA.set_ylabel("ARI  (vs MOB anatomical layers)")
-    axA.set_title("Leiden resolution sweep (4 weight configs)", loc="left", fontsize=9.5)
+    axA.set_title("Leiden resolution sweep (all configs incl. mean baseline)", loc="left", fontsize=9.5)
     axA.legend(loc="lower right", fontsize=6.8, ncol=2)
     axA.text(0.5, -0.22, "Star = best resolution per config. Truth = 5 MOB anatomical layers.",
              transform=axA.transAxes, ha="center", fontsize=6.8, style="italic", color="#444")
@@ -75,7 +91,7 @@ def main():
 
     # ---------- Panel B: best-of-config ARI/NMI bar ----------
     axB = fig.add_subplot(gs[0, 1])
-    cfgs = list(runs.keys())
+    cfgs = CONFIG_ORDER
     aris = [runs[c]["leiden_best"]["ari"] for c in cfgs]
     nmis = [runs[c]["leiden_best"]["nmi"] for c in cfgs]
     ndom = [runs[c]["leiden_best"]["n_domains"] for c in cfgs]
@@ -84,23 +100,26 @@ def main():
     axB.bar(x + w/2, nmis, width=w, color=[CONFIG_COLOR[c] for c in cfgs], alpha=0.5, edgecolor="white", lw=0.5, label="NMI")
     for i, (a, n, d) in enumerate(zip(aris, nmis, ndom)):
         axB.annotate(f"ARI={a:.2f}\nNMI={n:.2f}\n(k={d})", xy=(x[i], max(a, n)),
-                     xytext=(0, 4), textcoords="offset points", ha="center", fontsize=6.3)
+                     xytext=(0, 4), textcoords="offset points", ha="center", fontsize=5.8)
     axB.set_xticks(x)
-    axB.set_xticklabels(["APA-\ndom", "Bal", "Spat+\nAPA", "Expr+\nAPA"], fontsize=7.5)
+    axB.set_xticklabels(["Mean\n(no GP)", "APA-dom\nGP", "Spat+APA\nGP",
+                         "Bal\nGP", "Expr+APA\nGP"], fontsize=6.8)
     axB.set_ylim(0, 0.82)
     axB.set_ylabel("Best-resolution score")
-    axB.set_xlabel("Weight configuration")
-    axB.set_title("Weight-configuration robustness\n(each config at its best resolution)", loc="left", fontsize=9.5)
+    axB.set_xlabel("Weight configuration (spatial / expr / APA)")
+    axB.set_title("Best-resolution ARI/NMI per config\n(incl. mean-impute baseline)", loc="left", fontsize=9.5)
     axB.legend(loc="upper right", fontsize=7.5)
     panel_label(axB, "B", x=-0.10, y=1.05)
 
-    fig.suptitle("Supplementary Figure S10 — MOB domain recovery: Leiden sweep + weight-config robustness",
+    fig.suptitle("Supplementary Figure S10 — MOB domain recovery: Leiden sweep + config comparison",
                  fontsize=11, fontweight="bold", y=1.01)
     fig.text(0.5, -0.05,
              f"n = {m['n_spots']} spots, {n_true} true MOB layers. "
-             "This is a weight-configuration robustness test (4 spatial/expression/APA weightings\n"
-             "× Leiden resolution); random-seed stability across runs was not assessed here.",
-             ha="center", fontsize=6.8, style="italic", color="#555")
+             "Bars show 4 GP-imputed APA weight schemes plus the mean-imputed APA baseline\n"
+             "(same weights as APA-dominant, no GP). The headline expr+APA config "
+             "(ARI 0.597, k=5) refines recovery to all 5 layers; the main figure showcases the\n"
+             "APA-dominant config (expression 0.2 < APA 0.6). Random-seed stability not assessed.",
+             ha="center", fontsize=6.5, style="italic", color="#555")
     save_supp(fig, "supp_fig10_domain_recovery.png")
     print("[S10] done", flush=True)
 

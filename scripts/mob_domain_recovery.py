@@ -223,25 +223,58 @@ def main():
     # since the task is APA-domain recovery. Try a few weight schemes.
     work = imputed
     apa_view = np.clip(work, 0.0, 1.0)
+    apa_mean_view = None  # lazily built in the loop (cached after first use)
 
-    # Schemes: (name, spatial_w, expression_w, apa_w, n_neighbors)
-    schemes = [
-        ("apa_dominant", 0.2, 0.2 if expr_embedding is not None else 0.0, 0.6, 6),
-        ("balanced",     0.4, 0.4 if expr_embedding is not None else 0.0, 0.2, 6),
-        ("spatial_apa",  0.5, 0.0, 0.5, 6),
-        ("expression_apa", 0.1, 0.5, 0.4, 6),
-    ] if expr_embedding is not None else [
-        ("apa_dominant", 0.2, 0.0, 0.6, 6),
-        ("balanced",     0.4, 0.0, 0.2, 6),
-        ("spatial_apa",  0.5, 0.0, 0.5, 6),
-    ]
+    # Schemes: (name, spatial_w, expression_w, apa_w, n_neighbors, apa_source).
+    #   apa_source = "gp"  -> GP-imputed APA (spaGAPA; imputed/uncertainty above)
+    #   apa_source = "mean"-> per-gene-mean-imputed APA (fair baseline; same
+    #                        graph build + same Leiden pipeline, NO GP). Missing
+    #                        entries filled with the observed per-gene mean, the
+    #                        same convention MultiViewGraphBuilder uses
+    #                        internally (spagapa/bioml/multiview_graph.py:147).
+    # The mean_apa config carries the SAME weights as the main display config
+    # (apa_dominant) so the only difference is the APA imputation source.
+    # apa_mean_view is built lazily inside the loop (cached after first use).
+    if expr_embedding is not None:
+        schemes = [
+            ("apa_dominant",  0.2, 0.2, 0.6, 6, "gp"),
+            ("balanced",      0.4, 0.4, 0.2, 6, "gp"),
+            ("spatial_apa",   0.5, 0.0, 0.5, 6, "gp"),
+            ("expression_apa", 0.1, 0.5, 0.4, 6, "gp"),
+            ("mean_apa",      0.2, 0.2, 0.6, 6, "mean"),
+        ]
+    else:
+        schemes = [
+            ("apa_dominant", 0.2, 0.0, 0.6, 6, "gp"),
+            ("balanced",     0.4, 0.0, 0.2, 6, "gp"),
+            ("spatial_apa",  0.5, 0.0, 0.5, 6, "gp"),
+            ("mean_apa",     0.2, 0.0, 0.6, 6, "mean"),
+        ]
 
     domains_out = {"spot_id": spots, "x": coords[:, 0], "y": coords[:, 1],
                    "true_label": true_labels}
 
     best = {"ari": -1.0, "name": None}
-    for name, sw, ew, aw, nn in schemes:
+    for name, sw, ew, aw, nn, apa_src in schemes:
         t_g = time.time()
+        if apa_src == "mean":
+            # Fair baseline: per-gene-mean-imputed APA (no GP). Built once and
+            # cached. Same fill convention as MultiViewGraphBuilder
+            # (np.where(missing, gene_mean)); uncertainty=None so the graph
+            # builder does NOT apply confidence weighting (mean impute has no
+            # meaningful uncertainty to weight by).
+            if apa_mean_view is None:
+                apa_raw_mean = np.where(
+                    obs, apa, np.nanmean(np.where(obs, apa, np.nan), axis=1,
+                                         keepdims=True),
+                )
+                apa_raw_mean = np.nan_to_num(apa_raw_mean, nan=0.0)
+                apa_mean_view = np.clip(apa_raw_mean, 0.0, 1.0)
+            this_apa = apa_mean_view
+            this_unc = None
+        else:
+            this_apa = apa_view
+            this_unc = uncertainty
         graph = MultiViewGraphBuilder(
             n_neighbors=min(nn, n_spots - 1),
             spatial_weight=sw,
@@ -250,8 +283,8 @@ def main():
         ).build(
             coords,
             expression_embedding=expr_embedding,
-            apa_matrix=apa_view,
-            uncertainty=uncertainty,
+            apa_matrix=this_apa,
+            uncertainty=this_unc,
         )
         weights_eff = graph.weights
         fused = graph.fused
@@ -277,6 +310,7 @@ def main():
             "weights_requested": {"spatial": sw, "expression": ew, "apa": aw},
             "weights_effective": weights_eff,
             "n_neighbors": nn,
+            "apa_source": apa_src,
             "graph_wall_s": g_wall,
             "spectral_k5": {"n_domains": int(len(np.unique(labels_sp))),
                             "ari": ari_sp, "nmi": nmi_sp},

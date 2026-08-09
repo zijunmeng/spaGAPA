@@ -38,10 +38,24 @@ x = domains["x"].values
 y = domains["y"].values
 true_lab = domains["true_label"].values
 
-# best spaGAPA domain column (matches metrics["best"])
-BEST_COL = "expression_apa__leiden_res0.8"
+# best spaGAPA domain column for the main figure. The global best across all
+# configs is expression_apa/res0.8 (ARI 0.597, k=5) but that config weights
+# expression at 0.5 > apa 0.4, i.e. expression does more work than APA — not a
+# defensible "spaGAPA / APA-domain recovery" headline. The main figure
+# therefore showcases apa_dominant/res0.5 (spatial 0.2 / expression 0.2 /
+# APA 0.6, ARI 0.550, k=4): APA is the dominant view and the recovery is
+# close to the 5 anatomical layers. expression_apa/res0.8 (ARI 0.597, k=5)
+# is reported transparently in Supplementary Fig. S10 as the refinement
+# adding expression buys.
+BEST_COL = "apa_dominant__leiden_res0.5"
 assert BEST_COL in domains.columns, f"missing {BEST_COL}"
 pred_dom = domains[BEST_COL].values
+# Mean-imputed APA baseline column (fair baseline: same Leiden pipeline, same
+# weights as apa_dominant, but APA matrix filled with per-gene means instead
+# of GP). Its best Leiden resolution is res0.8 (see spagapa_metrics.json).
+MEAN_COL = "mean_apa__leiden_res0.8"
+assert MEAN_COL in domains.columns, f"missing {MEAN_COL}"
+mean_dom = domains[MEAN_COL].values
 
 # 5 true MOB layers + Okabe-Ito colors
 LAYER_ORDER = ["GCL", "GL", "MCL", "ONL", "OPL"]
@@ -86,70 +100,105 @@ axA.set_xlabel("X (array)", fontsize=7); axA.set_ylabel("Y (array)", fontsize=7)
 panel_label(axA, "A")
 
 # ============================================================
-# Panel B: domain maps — mean (degenerate) vs spaGAPA
+# Panel B: domain maps — mean-imputed APA baseline vs spaGAPA (GP-imputed APA)
+# Both use the SAME Leiden pipeline (res0.8 for mean_apa, res0.5 for the GP
+# apa_dominant display config), the SAME spatial graph and the SAME weights
+# (spatial 0.2 / expression 0.2 / APA 0.6). The ONLY difference is the APA
+# matrix source: per-gene mean (B1) vs spaGAPA GP imputation (B2).
 # ============================================================
-# B1 — mean impute is degenerate for graph clustering: each gene's missing entries
-# are filled with a per-gene constant, so the mean-imputed feature matrix adds no
-# spatial structure. Leiden on the resulting graph collapses to a single connected
-# component (no coherent domains). We render the tissue as one grey mass and label
-# it honestly — no random clusters are synthesised.
-axB1.set_title("Mean impute\n(degenerate: 1 cluster)", loc="left", fontsize=8.5)
-axB1.scatter(x, y, s=10, color=GREY, edgecolor="white", lw=0.2)
+dom_palette = [BLUE, ORANGE, GREEN, RED, SKYBLU, "#9467bd", "#8c564b"]
+
+# B1 — mean-imputed APA baseline (real Leiden domains, NOT a placeholder)
+mean_lb = metrics["runs"]["mean_apa"]["leiden_best"]
+mean_ari = mean_lb["ari"]; mean_nmi = mean_lb["nmi"]; mean_k = mean_lb["n_domains"]
+axB1.set_title("Mean-imputed APA\n(same pipeline, no GP)", loc="left", fontsize=8.5)
+mean_uniq = np.unique(mean_dom)
+for i, c in enumerate(mean_uniq):
+    m = mean_dom == c
+    axB1.scatter(x[m], y[m], s=10, color=dom_palette[i % len(dom_palette)],
+                 edgecolor="white", lw=0.2, label=f"d{c}")
 _spatial(axB1)
-axB1.text(0.5, -0.16, "Leiden on mean-imputed graph\ncollapses to one domain (ARI ≈ 0)",
-          transform=axB1.transAxes, ha="center", va="top", fontsize=6.2,
-          style="italic", color="#444")
+axB1.text(0.5, -0.16,
+          f"ARI = {mean_ari:.3f}   NMI = {mean_nmi:.3f}   ({mean_k} domains)",
+          transform=axB1.transAxes, ha="center", va="top", fontsize=6.5,
+          color=GREY, fontweight="bold")
 axB1.set_xlabel("X (array)", fontsize=7); axB1.set_ylabel("Y (array)", fontsize=7)
 
-# B2 — real spaGAPA domains (best config expression_apa / leiden res0.8, ARI=0.597)
-axB2.set_title(f"spaGAPA domains\n({BEST_COL.replace('__', ' / ')})", loc="left", fontsize=8.5)
-# assign cluster->color so each predicted domain gets a distinct Okabe-Ito hue
+# B2 — spaGAPA GP-imputed APA domains (display config apa_dominant / res0.5)
+axB2.set_title("spaGAPA GP-imputed APA\n(display config)",
+               loc="left", fontsize=8.5)
 uniq_dom = np.unique(pred_dom)
-dom_palette = [BLUE, ORANGE, GREEN, RED, SKYBLU, "#9467bd", "#8c564b"]
 for i, c in enumerate(uniq_dom):
     m = pred_dom == c
     axB2.scatter(x[m], y[m], s=10, color=dom_palette[i % len(dom_palette)],
                  edgecolor="white", lw=0.2, label=f"d{c}")
 _spatial(axB2)
-ari = metrics["best"]["ari"]; nmi = metrics["best"]["nmi"]
-axB2.text(0.5, -0.16, f"ARI = {ari:.3f}   NMI = {nmi:.3f}   (5 domains)",
+gp_ari = metrics["runs"]["apa_dominant"]["leiden_best"]["ari"]
+gp_nmi = metrics["runs"]["apa_dominant"]["leiden_best"]["nmi"]
+gp_k   = metrics["runs"]["apa_dominant"]["leiden_best"]["n_domains"]
+axB2.text(0.5, -0.16,
+          f"ARI = {gp_ari:.3f}   NMI = {gp_nmi:.3f}   ({gp_k} domains)",
           transform=axB2.transAxes, ha="center", va="top", fontsize=6.5,
           color=BLUE, fontweight="bold")
 axB2.set_xlabel("X (array)", fontsize=7); axB2.set_ylabel("Y (array)", fontsize=7)
 panel_label(axB1, "B", x=-0.10, y=1.12)
 
 # ============================================================
-# Panel C: real ARI / NMI bars across the 4 spaGAPA configs
+# Panel C: real ARI / NMI bars across all configs incl. mean-imputed baseline
+# Transparently shows every config — the 4 GP-imputed APA weight schemes plus
+# the mean-imputed APA baseline (same weights as apa_dominant, no GP). The
+# global best (expression_apa/res0.8, ARI 0.597) is marked but is reported in
+# Supplementary Fig. S10 because it weights expression above APA.
 # ============================================================
-axC.set_title("Domain recovery across weight configs", loc="left", fontsize=8.5)
+axC.set_title("Domain recovery across configs", loc="left", fontsize=8.5)
 runs = metrics["runs"]
-cfg_order = ["expression_apa", "apa_dominant", "balanced", "spatial_apa"]
+cfg_order = ["mean_apa", "apa_dominant", "spatial_apa", "balanced", "expression_apa"]
 cfg_labels = {
-    "expression_apa": "expr+APA\n(0.1/0.5/0.4)",
-    "apa_dominant":   "APA-dom.\n(0.2/0.2/0.6)",
-    "balanced":       "balanced\n(0.4/0.4/0.2)",
-    "spatial_apa":    "spatial+APA\n(0.5/0/0.5)",
+    "mean_apa":       "mean\n(no GP)",
+    "apa_dominant":   "APA-dom.\nGP (0.2/0.2/0.6)",
+    "spatial_apa":    "spatial+APA\nGP (0.5/0/0.5)",
+    "balanced":       "balanced\nGP (0.4/0.4/0.2)",
+    "expression_apa": "expr+APA\nGP (0.1/0.5/0.4)",
 }
-# Use each config's leiden_best (the metric the pipeline reports as that config's
-# best domain recovery). weights shown as (spatial/expression/APA).
-labels, aris, nmis = [], [], []
+cfg_colors = {
+    "mean_apa":       GREY,
+    "apa_dominant":   BLUE,
+    "spatial_apa":    SKYBLU,
+    "balanced":       GREEN,
+    "expression_apa": ORANGE,
+}
+# Use each config's leiden_best (the metric the pipeline reports as that
+# config's best domain recovery). weights shown as (spatial/expression/APA).
+labels, aris, nmis, cols = [], [], [], []
 for cfg in cfg_order:
     lb = runs[cfg]["leiden_best"]
     labels.append(cfg_labels[cfg])
-    aris.append(lb["ari"]); nmis.append(lb["nmi"])
+    aris.append(lb["ari"]); nmis.append(lb["nmi"]); cols.append(cfg_colors[cfg])
 xx = np.arange(len(labels))
 w = 0.38
-b1 = axC.bar(xx - w/2, aris, w, color=BLUE, label="ARI", edgecolor="white", lw=0.5)
-b2 = axC.bar(xx + w/2, nmis, w, color=GREEN, label="NMI", edgecolor="white", lw=0.5)
-# mark the global best
-axC.axhline(ari, color=ORANGE, ls="--", lw=1.0, alpha=0.8)
-axC.text(len(labels) - 0.5, ari + 0.012, f"best ARI = {ari:.3f}",
-         fontsize=6.2, color=ORANGE, ha="right", fontweight="bold")
+axC.bar(xx - w/2, aris, w, color=cols, label="ARI", edgecolor="white", lw=0.5)
+axC.bar(xx + w/2, nmis, w, color=cols, alpha=0.45, label="NMI", edgecolor="white", lw=0.5)
+# mark the global best (expression_apa/res0.8) for honesty
+global_best_ari = metrics["best"]["ari"]
+axC.axhline(global_best_ari, color=RED, ls="--", lw=1.0, alpha=0.8)
+axC.text(len(labels) - 0.5, global_best_ari + 0.012,
+         f"global best ARI = {global_best_ari:.3f} (expr+APA, in S10)",
+         fontsize=5.8, color=RED, ha="right", fontweight="bold")
+# mark the displayed (APA-dominant) config
+axC.scatter([1 - w/2], [gp_ari], marker="*", s=140, color=BLACK, zorder=5,
+            edgecolor="white", lw=0.5)
 axC.set_xticks(xx)
-axC.set_xticklabels(labels, fontsize=6.2)
+axC.set_xticklabels(labels, fontsize=5.9)
 axC.set_ylabel("Score vs ground truth", fontsize=7.5)
 axC.set_ylim(0, 0.78)
-axC.legend(loc="upper right", fontsize=6.8, ncol=2)
+# hand-built legend (solid=ARI, faint=NMI, star=displayed)
+from matplotlib.lines import Line2D
+axC.legend(handles=[
+    Line2D([0], [0], color=BLUE, lw=8, label="ARI"),
+    Line2D([0], [0], color=BLUE, lw=8, alpha=0.45, label="NMI"),
+    Line2D([0], [0], marker="*", color="w", markerfacecolor=BLACK,
+           markersize=12, label="displayed config"),
+], loc="upper left", fontsize=6.2)
 axC.tick_params(axis="y", labelsize=7)
 panel_label(axC, "C")
 
@@ -207,8 +256,7 @@ genes = gp_meta["genes"]
 # Panel E label + title (placed in figure-fraction coords above the subgridspec)
 fig.text(0.055, 0.350, "E", fontsize=13, fontweight="bold", va="bottom", ha="left")
 fig.text(0.5, 0.353,
-         "Representative real APA-gradient genes — sparse input (top) vs "
-         "spaGAPA GP reconstruction (bottom)",
+         "Representative real APA-gradient genes  (top: input · bottom: GP)",
          ha="center", fontsize=8.0, fontweight="bold")
 
 # shared vmin/vmax per gene (raw full matrix) so top/bottom rows are comparable
@@ -234,17 +282,17 @@ for col, gname in enumerate(genes):
     _spatial(ax_bot)
     if col == 0:
         ax_bot.set_ylabel("spaGAPA GP", fontsize=6.5)
-    cb = fig.colorbar(sc, ax=ax_bot, fraction=0.046, pad=0.04)
-    cb.set_label("APA usage", fontsize=5.8)
-    cb.ax.tick_params(labelsize=5.2)
+    # no per-gene colorbar: each gene has its own vmin/vmax, so 4 colorbars
+    # would be both redundant and mutually inconsistent; color is per-gene
+    # scaled (noted in the Panel E heading above).
 
-# footnote: honest provenance + single-sample caveat
+# footnote: short in-figure note only; full provenance caveats live in the
+# figure caption (manuscript) and the script docstring, per the "panels show
+# data, prose -> caption" rule.
 fig.text(0.5, 0.012,
-         "Single MOB section (ST11, n=260 spots, 5 bulb layers). "
-         "All maps, ARI/NMI and GP reconstructions are real; "
-         "no synthetic clusters or fabricated genes. "
-         "Mean impute is degenerate for graph clustering (single domain).",
-         ha="center", fontsize=5.9, style="italic", color="#666")
+         "Single MOB section (n=260). ARI/NMI and GP maps are real; "
+         "global-best config in Supp. Fig. S10.",
+         ha="center", fontsize=6.5, style="italic", color="#666")
 
 save(fig, "fig5_domain_recovery.png")
 print("Figure 5 done")

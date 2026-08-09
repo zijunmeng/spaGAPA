@@ -1,12 +1,13 @@
 """Figure 1: spaGAPA framework overview (4-panel conceptual schematic).
 
 Caption draft (kept here per BIB convention; not rendered inside panels):
-  spaGAPA addresses three gaps in spatial APA analysis (A): the PAS usage
+  spaGAPA addresses three gaps in spatial APA analysis (A): the APA-usage
   matrix is severely sparse (median 4.6% of gene x spot entries observed
   across 7 calibration samples; range 3.1-26.5%, Visium 3-5% / Stereo-seq
   ~27% - source: pipeline_output/spagapa_per_sample_summary.json), prior
-  tools return point estimates without calibrated uncertainty, and O(N^2)
-  spatial methods do not scale beyond ~15k spots. (B) Input pipeline:
+  tools return point estimates without calibrated uncertainty, and
+  neighbor-based comparators did not complete at >=42k locations under
+  benchmark limits. (B) Input pipeline:
   spatial reads -> PAS peak counts -> APA usage matrix Y in [0,1]^(G x N)
   with observed mask M -> spaGAPA imputation. (C) Sparse Gaussian Process:
   posterior mean with 68/95% credible bands over M=150 inducing points,
@@ -78,7 +79,7 @@ axA.set_xlim(0, 1); axA.set_ylim(0, 1); axA.axis("off")
 axA.set_title("Three gaps in spatial APA analysis", loc="left", fontsize=10)
 
 gaps = [
-    ("Gap 1", "Sparse PAS matrix",
+    ("Gap 1", "Sparse APA-usage matrix",
      "Only ~%.0f%% of gene x spot entries\n"
      "observed (Visium median, %d samples)"
      % (_visium_med * 100, _n_samples),
@@ -87,8 +88,9 @@ gaps = [
      "Existing tools give point\n"
      "estimates - no coverage guarantee", BLUE),
     ("Gap 3", "Cannot scale",
-     "O(N$^2$) KNN fails beyond ~15k\n"
-     "spots (Stereo-seq: 15-100k)", GREEN),
+     "Neighbor-based comparators did\n"
+     "not complete at $\\geq$42k locations\n"
+     "under benchmark limits", GREEN),
 ]
 y0 = 0.82
 step = 0.285

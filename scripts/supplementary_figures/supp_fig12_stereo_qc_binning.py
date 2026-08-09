@@ -10,7 +10,9 @@ Panel C: Binning sensitivity — cross-bin Pearson r between bin sizes (50/100,
          50/200) and Moran's I decay with bin size, over 8 high-coverage peaks.
 
 Data:
-  pipeline_output/gse263789_stereo_pilot/scapatrap_raw/peaks_meta.csv.gz
+  pipeline_output/gse263789_stereo_pilot/gsm8199179_full/scapatrap_raw/peaks_meta.csv.gz
+    (21,455 PAS — the full Stereo-seq run; matches Fig 7. Previously the
+     8,659-PAS pilot subset was used, which conflicted with Fig 7.)
   pipeline_output/supplementary_figures/_cache/s12_tes_distances.npy  (500k reads)
   pipeline_output/stereo_binning_consistency/binning_correlation.csv
 
@@ -33,7 +35,7 @@ setup_rc()
 
 
 def main():
-    peaks = pd.read_csv(os.path.join(ROOT, "pipeline_output/gse263789_stereo_pilot/scapatrap_raw/peaks_meta.csv.gz"))
+    peaks = pd.read_csv(os.path.join(ROOT, "pipeline_output/gse263789_stereo_pilot/gsm8199179_full/scapatrap_raw/peaks_meta.csv.gz"))
     dists = np.load(os.path.join(ROOT, "pipeline_output/supplementary_figures/_cache/s12_tes_distances.npy"))
     binning = pd.read_csv(os.path.join(ROOT, "pipeline_output/stereo_binning_consistency/binning_correlation.csv"))
 

@@ -168,6 +168,9 @@ axC.tick_params(labelsize=7)
 panel_label(axC, "C", x=-0.07, y=1.08)
 
 # ---------------- Panel D: accuracy vs spatial 2D ----------------
+# Panel carries data + method legend only; the Mean-vs-spaGAPA trade-off
+# narrative ("Mean: lowest RMSE / zero gradient; spaGAPA-GP: moderate RMSE,
+# strong gradient") lives in the figure caption, not as on-axis annotations.
 axD.set_title("Accuracy vs spatial fidelity", loc="left", fontsize=9)
 for m in METHOD_ORDER:
     sub = df[df.method == m]
@@ -176,14 +179,11 @@ for m in METHOD_ORDER:
                  fmt="o", color=METHOD_COLORS[m], ms=8, capsize=2.5,
                  markeredgecolor="white", lw=1.0,
                  label=METHOD_LABELS[m], zorder=4)
-axD.annotate("Mean: lowest RMSE,\nzero gradient", xy=(0.080, 0.0), xytext=(0.17, 0.13),
-             fontsize=6.5, arrowprops=dict(arrowstyle="->", color=GREY, lw=0.8), color=GREY)
-axD.annotate("spaGAPA-GP: moderate RMSE,\nstrong gradient", xy=(0.122, 0.42), xytext=(0.20, 0.60),
-             fontsize=6.5, arrowprops=dict(arrowstyle="->", color=BLUE, lw=0.8), color=BLUE)
 axD.set_xlabel("Entry-wise RMSE (↓)", fontsize=8)
 axD.set_ylabel("Spatial fidelity", fontsize=8)
 axD.legend(fontsize=6.4, loc="upper right", handlelength=1.1)
 axD.set_xlim(0.05, 0.30)
+axD.set_ylim(-0.05, 1.0)
 axD.tick_params(labelsize=7)
 panel_label(axD, "D", x=-0.07, y=1.08)
 
@@ -205,11 +205,13 @@ vmin = float(np.percentile(truth[obs_mask], 2)) if obs_mask.any() else 0.0
 vmax = float(np.percentile(truth[obs_mask], 98)) if obs_mask.any() else 1.0
 err_vmax = max(float(np.nanmax(err)), 1e-3)
 
+# Sub-panel labels kept short so they don't crowd the E title.
+# peak_94938 identity and Moran's I = +0.50 are reported in the caption, not on-panel.
 panels_e = [
-    ("Truth",            truth,     "viridis", vmin, vmax),
+    ("Held-out truth",   truth,     "viridis", vmin, vmax),
     ("Mean",             mean_pred, "viridis", vmin, vmax),
     ("spaGAPA-GP",       gp_pred,   "viridis", vmin, vmax),
-    ("|GP − truth|",     err,       "Reds",    0.0,   err_vmax),
+    ("Absolute error",   err,       "Reds",    0.0,   err_vmax),
 ]
 for mi, (lab, pdat, cmap, lo, hi) in enumerate(panels_e):
     axm = fig.add_subplot(sub_gs_E[0, mi])
@@ -224,10 +226,11 @@ for mi, (lab, pdat, cmap, lo, hi) in enumerate(panels_e):
 for mi in range(4):
     axhid = fig.add_subplot(sub_gs_E[1, mi]); axhid.axis("off")
 
-# title + panel label on an invisible anchor over the E region
+# title + panel label on an invisible anchor over the E region.
+# Keep the on-panel title short; peak ID and Moran's I are stated in the caption.
 axE_anchor = fig.add_subplot(gs[2, 0:2]); axE_anchor.axis("off")
 axE_anchor.set_title(
-    f"Representative APA spatial map — {GENE2E}  (Moran's I = {gp_meta['morans_i']:+.2f})",
+    "Representative spatial reconstruction",
     loc="left", fontsize=8.5,
 )
 panel_label(axE_anchor, "E", x=-0.04, y=1.12)
@@ -250,15 +253,10 @@ for w in bp["whiskers"]:
     w.set_color("#555"); w.set_linewidth(0.9)
 for cap in bp["caps"]:
     cap.set_color("#555"); cap.set_linewidth(0.9)
-axF.axhline(0, color=RED, lw=1.0, ls="--",
-            label="GP = mean (no RMSE advantage)")
-# median Δ label per quintile
+# Single horizontal zero reference line (Δ = 0  ⇔  GP and mean tie on RMSE).
+axF.axhline(0, color=RED, lw=1.0, ls="--")
+# Quintile tick labels carry the Moran's I midpoint only (no per-box stats).
 mi_med = s4.groupby("quintile")["morans_i"].median()
-d_med = s4.groupby("quintile")["delta_rmse"].median()
-ymax = max(np.nanmax(np.concatenate(data_F)), 0.0)
-for q in range(1, 6):
-    axF.annotate(f"med\n{d_med[q]:+.3f}", xy=(q, ymax * 0.96),
-                 fontsize=6.2, ha="center", color="#333")
 axF.set_xticks(pos_F)
 axF.set_xticklabels(
     [f"Q{q}\nI={mi_med[q]:+.2f}" for q in range(1, 6)],
@@ -266,19 +264,16 @@ axF.set_xticklabels(
 )
 axF.set_xlabel("Moran's I quintile  (Q1 = low → Q5 = high spatial signal)", fontsize=8)
 axF.set_ylabel("Δ RMSE  (spaGAPA-GP − mean)", fontsize=8)
-axF.set_title("Per-gene RMSE gap is positive (mean wins); gap widens at high spatial signal",
-              loc="left", fontsize=8.2)
-axF.legend(loc="upper left", fontsize=6.4, handlelength=1.2)
+axF.set_title("Δ RMSE by spatial-signal quintile", loc="left", fontsize=8.2)
 axF.tick_params(labelsize=7)
-# mean Δ line for context
-mean_delta = s4["delta_rmse"].mean()
-frac_gp = (s4["delta_rmse"] < 0).mean() * 100
-axF.text(0.5, -0.30,
-         f"n = {len(s4)} genes (GSE183456, 20% hold-out).  Mean Δ = {mean_delta:+.3f};  "
-         f"spaGAPA-GP beats mean in only {frac_gp:.0f}% of genes.\n"
-         f"spaGAPA-GP's value is spatial reconstruction + calibrated uncertainty + scalable inference, not RMSE.",
-         transform=axF.transAxes, fontsize=6.2, ha="center",
-         style="italic", color="#555")
+# One compact interpretation note inside the panel; the ~85%-of-genes / mean-Δ
+# numbers and the "value = spatial reconstruction + uncertainty" prose go to caption.
+axF.text(0.02, 0.98, "Δ > 0: mean performs better", transform=axF.transAxes,
+         fontsize=6.6, va="top", ha="left", style="italic", color="#555")
+# n per group (≈30 / quintile from 150 genes / 5) noted under the x-axis.
+n_per = len(s4) // 5
+axF.text(0.98, -0.22, f"n ≈ {n_per} genes / quintile", transform=axF.transAxes,
+         fontsize=6.6, va="top", ha="right", color="#555")
 panel_label(axF, "F", x=-0.10, y=1.08)
 
 save(fig, "fig2_spatial_vs_mean_benchmark.png")

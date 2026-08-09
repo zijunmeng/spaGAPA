@@ -7,6 +7,11 @@ single-run wall time). Wall time is taken from the cached transparent head-to-
 head benchmark (GSE183456); note is added that values are single-run on the
 same hardware.
 
+RECOMMENDATION (reviewer): a parameter table is inherently tabular and is best
+presented as a Supplementary Table Sx rather than as a figure. This script is
+retained for the current submission, but a Table Sx conversion is preferred
+(parameter tables do not need to be figures).
+
 Data:
   pipeline_output/benchmark_fairness/parameter_table.csv
   pipeline_output/benchmark_mean_transparent/transparent_comparison.csv (wall time)
