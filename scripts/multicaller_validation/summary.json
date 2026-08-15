@@ -1,0 +1,143 @@
+{
+  "dataset": "GSE183456 / GSM6047774 (human kidney Visium, 10x Space Ranger, 3010 spots)",
+  "baseline_caller": "scAPAtrap (53,572 sites; 34,118 usage rows)",
+  "second_caller": "Sierra 0.99.27 (Winnie09/Sierra; FindPeaks + CountPeaks with UMI dedup)",
+  "input_bam": "pipeline_output/gse183456_GSM6047774_sr/outs/possorted_genome_bam.bam",
+  "reference_gtf": "refdata-gex-GRCh38-2024-A/genes/genes.gtf.gz (Space Ranger reference)",
+  "sierra_run": {
+    "dataset": "gse183456_gsm6047774_sierra",
+    "caller": "Sierra 0.99.27 (Winnie09/Sierra)",
+    "platform": "10x Visium",
+    "n_spots": 3010,
+    "n_peaks_raw_all_genes": 19575,
+    "n_sites_ge2": 10456,
+    "n_genes_ge2": 4258,
+    "min_parent_count": 5,
+    "summit_missing_filled_with_midpoint": 0,
+    "files": {
+      "apa_matrix": "apa_matrix.csv",
+      "apa_sites": "apa_sites.csv.gz",
+      "apa_site_counts": "apa_site_counts.csv.gz",
+      "coordinates": "../../data/processed/gse183456_gsm6047774_scapatrap/coordinates.csv (reused)"
+    }
+  },
+  "metric_a_pas_overlap": {
+    "cluster_bp": 50,
+    "n_clusters": 48348,
+    "shared_clusters": 3586,
+    "unique_callerA_clusters": 38161,
+    "unique_callerB_clusters": 6601,
+    "jaccard_clusters": 0.07417059650864566,
+    "callerA_points_withB_within_bp": 3586,
+    "callerA_points_total": 41743,
+    "callerA_frac_matched": 0.08590661907385669,
+    "callerB_points_withA_within_bp": 3686,
+    "callerB_points_total": 10445,
+    "callerB_frac_matched": 0.3528961225466731,
+    "summit_convention_sensitivity": {
+      "cluster_bp": 50,
+      "n_clusters": 51365,
+      "shared_clusters": 613,
+      "unique_callerA_clusters": 41134,
+      "unique_callerB_clusters": 9618,
+      "jaccard_clusters": 0.011934196437262727,
+      "callerA_points_withB_within_bp": 613,
+      "callerA_points_total": 41743,
+      "callerA_frac_matched": 0.014685096902474666,
+      "callerB_points_withA_within_bp": 615,
+      "callerB_points_total": 10445,
+      "callerB_frac_matched": 0.05887984681665869
+    },
+    "nearest_distance": {
+      "median_bp": 67.0,
+      "frac_le_100bp": 0.6934418382000958,
+      "frac_le_500bp": 0.8748683580660603,
+      "frac_le_1000bp": 0.9147917663954045
+    }
+  },
+  "metric_b_gene_level": {
+    "min10spots": {
+      "n_genes_compared": 814,
+      "pearson_r_median": 0.513709939346981,
+      "pearson_r_mean": 0.48960825418650555,
+      "pearson_r_q25": 0.040669049666451594,
+      "pearson_r_q75": 0.9683704673229652,
+      "frac_r_gt_0.5": 0.5024570024570024,
+      "frac_r_gt_0.7": 0.44226044226044225
+    },
+    "min30spots": {
+      "n_genes_compared": 537,
+      "pearson_r_median": 0.38462420657781626,
+      "pearson_r_mean": 0.44927516179661403,
+      "pearson_r_q25": 0.030922997271944752,
+      "pearson_r_q75": 0.9368348404635616,
+      "frac_r_gt_0.5": 0.44692737430167595,
+      "frac_r_gt_0.7": 0.38361266294227186
+    }
+  },
+  "metric_c_conformal_coverage": {
+    "sierra_input": {
+      "n_genes": 10456,
+      "n_spots": 3010,
+      "n_test": 59457,
+      "before_raw_gp": {
+        "80pct": 0.9763022015910658,
+        "90pct": 0.9893031939048388,
+        "95pct": 0.9944329515448139
+      },
+      "after_conformal_global": {
+        "80pct": 0.8010326790789982,
+        "90pct": 0.8999949543367476,
+        "95pct": 0.9495265485981466
+      },
+      "after_conformal_locally_adaptive": {
+        "80pct": 0.8017054341793228,
+        "90pct": 0.9007181660695965,
+        "95pct": 0.94913971441546
+      }
+    },
+    "scapatrap_input_same_protocol": {
+      "n_genes": 34118,
+      "n_test": 131084,
+      "after_conformal_global": {
+        "80pct": 0.8006316560373501,
+        "90pct": 0.9005218028134632,
+        "95pct": 0.9510390284092642
+      },
+      "after_conformal_locally_adaptive": {
+        "80pct": 0.8012877239022306,
+        "90pct": 0.899934393213512,
+        "95pct": 0.9500549266119435
+      }
+    }
+  },
+  "metric_d_gp_vs_mean": {
+    "protocol": {
+      "n_genes": 200,
+      "mask_fraction": 0.2,
+      "seed": 42,
+      "imputer": "SparseGPImputer(n_inducing=100, length_scale_multiplier=5.0, noise_level=0.1)",
+      "gene_filter": "obs_frac in [0.05, 0.55]"
+    },
+    "scapatrap": {
+      "n_genes": 200,
+      "rmse_gp_median": 0.06663937016538714,
+      "rmse_gp_mean": 0.27342199271427964,
+      "rmse_mean_median": 0.04027342568907868,
+      "rmse_mean_mean": 0.06749101469287881,
+      "frac_gp_better": 0.155,
+      "delta_median": 0.004134162969346343,
+      "delta_mean": 0.20593097802140087
+    },
+    "sierra": {
+      "n_genes": 200,
+      "rmse_gp_median": 0.3245838745402261,
+      "rmse_gp_mean": 0.4010020465185126,
+      "rmse_mean_median": 0.1296401580109267,
+      "rmse_mean_mean": 0.138362791876798,
+      "frac_gp_better": 0.005,
+      "delta_median": 0.14598596574880768,
+      "delta_mean": 0.2626392546417146
+    }
+  }
+}
