@@ -45,7 +45,8 @@ first if the cache is stale or missing (they write to
 | S16 | `supp_fig16_mae_risk_coverage.py` | MAE risk-coverage (paired unit for Fig 4F) | `risk_coverage_curve/risk_coverage_data.csv` |
 
 Panel-level figure descriptions are documented in each `supp_figNN_*.py`
-docstring (top-of-file); main figures 1–7 are indexed in
+docstring (top-of-file) and, submission-ready, in
+**`supp_figure_legends.md`** (this directory); main figures 1–7 are indexed in
 `scripts/main_figures/figure_index.md`. S14 houses the n=1-vs-n=1 AD-WT
 effect-size analysis moved out of main Figure 7 — effect sizes only, **no
 p-value / no FDR** (biological n=1 per condition). S15 (conformal deviation
