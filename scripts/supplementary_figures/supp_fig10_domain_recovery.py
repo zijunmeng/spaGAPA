@@ -34,6 +34,10 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _style import setup_rc, panel_label, BLUE, ORANGE, GREEN, SKYBLU, RED, GREY, save_supp
 
+# PAGE_WIDTH_IN is defined in main_figures/_style.py (the shared BIB page
+# geometry constant, ~7 in); mirror it here without modifying _style.py.
+PAGE_WIDTH_IN = 7.0
+
 ROOT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
 setup_rc()
 
@@ -64,11 +68,13 @@ def main():
     CONFIG_ORDER = ["mean_apa", "apa_dominant", "spatial_apa",
                     "balanced", "expression_apa"]
 
-    fig = plt.figure(figsize=(12, 5.3))
-    gs = fig.add_gridspec(1, 2, wspace=0.22, width_ratios=[1.5, 1.0])
+    # Print-width layout: panels stacked vertically (side-by-side left no room
+    # for the 3-line per-config annotations in Panel B at PAGE_WIDTH_IN).
+    fig = plt.figure(figsize=(PAGE_WIDTH_IN, 7.6))
+    gs = fig.add_gridspec(2, 1, hspace=0.55)
 
     # ---------- Panel A: resolution sweep ----------
-    axA = fig.add_subplot(gs[0, 0])
+    axA = fig.add_subplot(gs[0, 0])  # row 0 (stacked layout)
     for cfg in CONFIG_ORDER:
         run = runs[cfg]
         res = sorted(run["leiden"].keys(), key=lambda s: float(s.split("_")[1]))
@@ -90,7 +96,7 @@ def main():
     panel_label(axA, "A", x=-0.05, y=1.05)
 
     # ---------- Panel B: best-of-config ARI/NMI bar ----------
-    axB = fig.add_subplot(gs[0, 1])
+    axB = fig.add_subplot(gs[1, 0])  # row 1 (stacked layout)
     cfgs = CONFIG_ORDER
     aris = [runs[c]["leiden_best"]["ari"] for c in cfgs]
     nmis = [runs[c]["leiden_best"]["nmi"] for c in cfgs]
@@ -109,17 +115,18 @@ def main():
     axB.set_xlabel("Weight configuration (spatial / expr / APA)")
     axB.set_title("Best-resolution ARI/NMI per config\n(incl. mean-impute baseline)", loc="left", fontsize=9.5)
     axB.legend(loc="upper right", fontsize=7.5)
-    panel_label(axB, "B", x=-0.10, y=1.05)
+    panel_label(axB, "B", x=-0.06, y=1.05)
 
-    fig.suptitle("Supplementary Figure S10 — MOB domain recovery: Leiden sweep + config comparison",
-                 fontsize=11, fontweight="bold", y=1.01)
-    fig.text(0.5, -0.05,
+    fig.suptitle("Supplementary Figure S10 — MOB domain recovery:\nLeiden sweep + config comparison",
+                 fontsize=11, fontweight="bold", y=0.995, va="top")
+    fig.text(0.5, 0.005,
              f"n = {m['n_spots']} spots, {n_true} true MOB layers. "
              "Bars show 4 GP-imputed APA weight schemes plus the mean-imputed APA baseline\n"
              "(same weights as APA-dominant, no GP). The headline expr+APA config "
-             "(ARI 0.597, k=5) refines recovery to all 5 layers; the main figure showcases the\n"
-             "APA-dominant config (expression 0.2 < APA 0.6). Random-seed stability not assessed.",
-             ha="center", fontsize=6.5, style="italic", color="#555")
+             "(ARI 0.597, k=5) refines recovery\n"
+             "to all 5 layers; the main figure showcases the APA-dominant config "
+             "(expression 0.2 < APA 0.6). Random-seed stability not assessed.",
+             ha="center", va="bottom", fontsize=6.5, style="italic", color="#555")
     save_supp(fig, "supp_fig10_domain_recovery.png")
     print("[S10] done", flush=True)
 

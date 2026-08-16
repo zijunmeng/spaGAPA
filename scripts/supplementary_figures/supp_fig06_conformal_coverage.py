@@ -26,7 +26,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _style import setup_rc, panel_label, BLUE, ORANGE, GREEN, SKYBLU, RED, GREY, save_supp
+from _style import setup_rc, panel_label, BLUE, ORANGE, GREEN, SKYBLU, RED, GREY
+import _style as _S
 
 ROOT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
 setup_rc()
@@ -46,8 +47,9 @@ def main():
 
     # Panel C uses the exact per-observation Winkler (Gneiting–Raftery) score
     # from the persisted bounds when available; see the Panel C block below.
-    fig = plt.figure(figsize=(13, 10))
-    gs = fig.add_gridspec(2, 2, hspace=0.42, wspace=0.27)
+    fig = plt.figure(figsize=(7.0, 7.5))
+    fig.subplots_adjust(left=0.12, right=0.97, top=0.90, bottom=0.09)
+    gs = fig.add_gridspec(2, 2, hspace=0.52, wspace=0.34)
 
     # ---------- Panel A: coverage ----------
     axA = fig.add_subplot(gs[0, 0])
@@ -57,7 +59,7 @@ def main():
                 label=f"{int(nom*100)}% target")
     for nom in [0.80, 0.90, 0.95]:
         axA.axhline(nom, color="#555", lw=0.7, ls=":", zorder=0)
-    axA.set_xticks(x); axA.set_xticklabels(labels, fontsize=6.3, rotation=55, ha="right")
+    axA.set_xticks(x); axA.set_xticklabels(labels, fontsize=6.3, rotation=90, ha="center")
     axA.set_ylim(0.76, 0.985)
     axA.set_ylabel("Empirical coverage")
     axA.set_xlabel("Sample (GSE / GSM)")
@@ -70,7 +72,7 @@ def main():
     for i, (nom, _, qcol, col) in enumerate(levels):
         axB.bar(x + (i - 1) * w, 2 * cov[qcol], width=w, color=col, edgecolor="white", linewidth=0.4,
                 label=f"{int(nom*100)}%")
-    axB.set_xticks(x); axB.set_xticklabels(labels, fontsize=6.3, rotation=55, ha="right")
+    axB.set_xticks(x); axB.set_xticklabels(labels, fontsize=6.3, rotation=90, ha="center")
     axB.set_ylabel("Interval width  (2 $\\cdot$ $\\hat{q}$)")
     axB.set_xlabel("Sample")
     axB.set_title("Interval width grows with target level", loc="left")
@@ -91,8 +93,8 @@ def main():
             lvl = int(round(nom * 100))
             axC.bar(x + (i - 1) * w, cov[f"winkler_{lvl}"], width=w, color=col,
                     edgecolor="white", linewidth=0.4, label=f"{int(nom*100)}%")
-        score_ylabel = "Interval score  (Gneiting–Raftery / Winkler; lower = better)"
-        score_title = "Interval score — exact Winkler score per held-out spot"
+        score_ylabel = "Interval score\n(Winkler; lower = better)"
+        score_title = "Exact Winkler score\nper held-out spot"
         score_formal = True
     else:
         for i, (nom, ccol, qcol, col) in enumerate(levels):
@@ -105,7 +107,7 @@ def main():
         score_ylabel = "Interval score (approx. from $\\hat{q}$ + RMSE; lower = better)"
         score_title = "Interval score (approximation — per-obs bounds unavailable)"
         score_formal = False
-    axC.set_xticks(x); axC.set_xticklabels(labels, fontsize=6.3, rotation=55, ha="right")
+    axC.set_xticks(x); axC.set_xticklabels(labels, fontsize=6.3, rotation=90, ha="center")
     axC.set_ylabel(score_ylabel)
     axC.set_xlabel("Sample")
     axC.set_title(score_title, loc="left")
@@ -129,34 +131,40 @@ def main():
     axD.set_xlabel("Uncertainty quintile (per-sample GP posterior std)")
     axD.set_title("Empirical subgroup coverage by uncertainty quintile", loc="left")
     axD.text(0.5, -0.32,
-             "Positive deviation = conservative (over-cover). This is an empirical marginal-"
-             "coverage check\nby subgroup (quintile), not a formal conditional-coverage guarantee; "
-             "the highest-uncertainty quintile over-covers.",
+             "Positive deviation = conservative (over-cover); empirical subgroup check,\n"
+             "not a formal conditional guarantee. Highest-uncertainty quintile over-covers.",
              transform=axD.transAxes, fontsize=6.8, ha="center", style="italic", color="#444")
     panel_label(axD, "D", x=-0.06, y=1.05)
 
     fig.suptitle("Supplementary Figure S6 — Full conformal coverage (11 samples × 80/90/95%)",
-                 fontsize=11, fontweight="bold", y=0.995)
+                 fontsize=10, fontweight="bold", y=0.995)
     # Caption note on interval score (formal per-observation Winkler, or the
     # approximation if the per-obs bounds were unavailable).
     if score_formal:
         score_note = (
-            "Panel C is the exact Gneiting–Raftery (2007) interval (Winkler) score per held-out spot, "
-            "S = (hi−lo) + (2/α)·(lo−y)·1[y<lo] + (2/α)·(y−hi)·1[y>hi], averaged per sample over the test set "
-            "(bounds persisted in per_observation_bounds.npz). "
-            "Coverage (A) and width (B) are exact; Panel D is an empirical subgroup check, not a formal "
-            "conditional-coverage guarantee.")
+            "Panel C: exact Gneiting–Raftery (2007) Winkler score per held-out spot, "
+            "S = (hi−lo) + (2/α)·(lo−y)·1[y<lo] + (2/α)·(y−hi)·1[y>hi],\n"
+            "averaged per sample over the test set (bounds in per_observation_bounds.npz). "
+            "Coverage (A) and width (B) are exact; Panel D is an empirical subgroup check,\n"
+            "not a formal conditional-coverage guarantee.")
     else:
         score_note = (
             "Panel C interval score is the Gneiting–Raftery score approximated from per-sample qhat and RMSE "
-            "(width + (2/α)·RMSE·(1−coverage)); the per-observation (y, lo, hi) bounds were unavailable so the "
-            "exact Winkler score could not be computed — only this aggregate proxy. "
-            "Coverage (A) and width (B) are exact; Panel D is an empirical subgroup check, not a formal "
-            "conditional-coverage guarantee.")
+            "(width + (2/α)·RMSE·(1−coverage)); per-observation bounds were unavailable,\n"
+            "so only this aggregate proxy could be computed. "
+            "Coverage (A) and width (B) are exact; Panel D is an empirical subgroup check, "
+            "not a formal conditional-coverage guarantee.")
     fig.text(0.5, 0.012, score_note,
              ha="center", fontsize=6.8, style="italic", color="#555")
-    save_supp(fig, "supp_fig06_conformal_coverage.png")
-    print("[S6] done", flush=True)
+    # Explicit save (no bbox_inches='tight'): rotated tick labels make the tight
+    # bbox expand far beyond the canvas (a matplotlib quirk), so save at the
+    # exact figsize — all artists are placed within the canvas margins above.
+    import matplotlib.pyplot as _plt
+    _plt.ioff()
+    fig.savefig(os.path.join(_S.OUT, "supp_fig06_conformal_coverage.pdf"), facecolor="white")
+    fig.savefig(os.path.join(_S.OUT, "supp_fig06_conformal_coverage.png"), dpi=300, facecolor="white")
+    _plt.close(fig)
+    print(f"[S6] done -> {_S.OUT}/supp_fig06_conformal_coverage.pdf (+png)", flush=True)
 
 
 if __name__ == "__main__":

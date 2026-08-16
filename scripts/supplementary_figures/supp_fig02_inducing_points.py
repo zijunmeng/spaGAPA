@@ -28,7 +28,7 @@ def main():
     df = pd.read_csv(CACHE)
     print(f"[S2] cache: {len(df)} rows\n{df}", flush=True)
 
-    fig, (axA, axB) = plt.subplots(1, 2, figsize=(11, 4.6))
+    fig, (axA, axB) = plt.subplots(1, 2, figsize=(7.0, 3.4))
 
     m = df["n_inducing"].values
 
@@ -36,6 +36,8 @@ def main():
     axA.plot(m, df["rmse_overall"], "-o", color=BLUE, ms=7, lw=2.0, label="Overall RMSE")
     axA.plot(m, df["rmse_median_gene"], "-s", color=ORANGE, ms=7, lw=2.0, label="Median per-gene RMSE")
     axA.fill_between(m, df["rmse_median_gene"], df["rmse_overall"], color=BLUE, alpha=0.08)
+    # Head-room so the top-right annotation box clears the flat RMSE line.
+    axA.set_ylim(0.0, 1.3 * df["rmse_overall"].max())
     axA.set_xscale("log")
     axA.set_xticks(m); axA.set_xticklabels([str(v) for v in m])
     axA.set_xlabel("# inducing points  m  (log scale)")
@@ -67,11 +69,11 @@ def main():
     axB.legend(loc="upper left", fontsize=8)
     panel_label(axB, "B", x=-0.07, y=1.05)
 
-    fig.suptitle("Supplementary Figure S2 — Sparse GP inducing-point sensitivity (GSE183456)",
-                 fontsize=11, fontweight="bold", y=1.02)
-    fig.text(0.5, -0.03,
+    fig.suptitle("Supplementary Figure S2 — Sparse GP inducing-point sensitivity\n(GSE183456)",
+                 fontsize=11, fontweight="bold", y=1.06)
+    fig.text(0.5, -0.04,
              f"n = {int(df['n_genes'].iloc[0])} genes, 20% held-out, mask seed 42. "
-             "Larger m buys no accuracy but costs time — the default m=100 is the efficient choice.",
+             "Larger m buys no accuracy but costs time —\nthe default m=100 is the efficient choice.",
              ha="center", fontsize=7, style="italic", color="#555")
     save_supp(fig, "supp_fig02_inducing_points.png")
     print("[S2] done", flush=True)

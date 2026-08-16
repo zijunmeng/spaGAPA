@@ -23,6 +23,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _style import (setup_rc, panel_label, BLUE, ORANGE, GREEN, GREY, BLACK,
                     save_supp)
 
+# PAGE_WIDTH_IN is defined in main_figures/_style.py (the shared BIB page
+# geometry constant, ~7 in); mirror it here without modifying _style.py.
+PAGE_WIDTH_IN = 7.0
+
 ROOT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
 setup_rc()
 
@@ -33,8 +37,10 @@ def main():
     n = len(cov_sorted)
     print(f"[S15] {n} samples", flush=True)
 
-    fig, ax = plt.subplots(figsize=(6.8, 4.2))
-    fig.subplots_adjust(left=0.20, right=0.96, top=0.90, bottom=0.16)
+    # Print-width layout: PAGE_WIDTH_IN canvas; caption wrapped so the
+    # bbox_inches="tight" PDF stays inside the ~178 mm print width.
+    fig, ax = plt.subplots(figsize=(PAGE_WIDTH_IN, 4.4))
+    fig.subplots_adjust(left=0.20, right=0.96, top=0.90, bottom=0.18)
 
     ys = np.arange(n)
     dev80 = cov_sorted["coverage_80"].values - 0.80
@@ -74,9 +80,9 @@ def main():
     fig.suptitle("Supplementary Figure S15 — Per-sample coverage deviation forest",
                  fontsize=11, fontweight="bold", y=0.985)
     fig.text(0.5, 0.025,
-             "Each row = one sample (n=11). Orange band = 95% binomial CI for the 90% "
-             "level (per-sample n_test). Max |dev|: 0.49% (80%), 0.47% (90%), 0.24% (95%).",
-             ha="center", fontsize=7, style="italic", color="#555")
+             "Each row = one sample (n=11). Orange band = 95% binomial CI for the 90% level (per-sample n_test).\n"
+             "Max |dev|: 0.49% (80%), 0.47% (90%), 0.24% (95%).",
+             ha="center", va="bottom", fontsize=7, style="italic", color="#555")
 
     save_supp(fig, "supp_fig15_conformal_deviation_forest.png")
     print("[S15] done", flush=True)

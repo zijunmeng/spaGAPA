@@ -72,7 +72,7 @@ def main():
         "other":  GREY,
     }
 
-    fig = plt.figure(figsize=(13, 8.5))
+    fig = plt.figure(figsize=(7.0, 5.8))
     gs = fig.add_gridspec(2, 1, height_ratios=[1.35, 1.0], hspace=0.34)
 
     # ---------- Panel A: PAS count per sample ----------
@@ -130,7 +130,8 @@ def main():
                       f"{int(df['n_pas'].mean()):,}"])
 
     tbl = axB.table(cellText=cell_text, colLabels=cols, loc="upper center",
-                    cellLoc="center", colLoc="center")
+                    cellLoc="center", colLoc="center",
+                    colWidths=[0.09, 0.07, 0.07, 0.345, 0.10, 0.10, 0.115, 0.09])
     tbl.auto_set_font_size(False)
     tbl.set_fontsize(7.6)
     tbl.scale(1.0, 1.32)

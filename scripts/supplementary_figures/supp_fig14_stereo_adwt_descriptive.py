@@ -57,9 +57,9 @@ n_distal = int(((eff["candidate_differential"] == 1) &
 n_prox = int(((eff["candidate_differential"] == 1) &
               (eff["delta_AD_minus_WT"] < 0)).sum())
 
-fig = plt.figure(figsize=(PAGE_WIDTH_IN, 5.0))
+fig = plt.figure(figsize=(PAGE_WIDTH_IN, 5.2))
 gs = GridSpec(1, 2, figure=fig, width_ratios=[1.55, 1.0], wspace=0.32,
-              left=0.115, right=0.965, top=0.80, bottom=0.20)
+              left=0.115, right=0.965, top=0.76, bottom=0.22)
 
 # --------------------------------------------------------------------------- #
 # Panel A -- top-10 by |Delta|
@@ -86,7 +86,8 @@ legend_elems = [
     Line2D([0], [0], marker="s", color="w", markerfacecolor=BLUE,
            markersize=8, label="proximal-up in AD"),
 ]
-axA.legend(handles=legend_elems, loc="lower right", fontsize=7,
+axA.legend(handles=legend_elems, loc="lower center",
+           bbox_to_anchor=(0.5, -0.24), ncol=2, fontsize=7,
            frameon=True, framealpha=0.9)
 panel_label(axA, "A", x=-0.18, y=1.06)
 
@@ -109,24 +110,26 @@ axB.grid(axis="y", linestyle="--", alpha=0.4)
 panel_label(axB, "B", x=-0.22, y=1.06)
 
 # --------------------------------------------------------------------------- #
-# Prominent n=1 caveat banner across the top of the figure
+# Prominent n=1 caveat banner across the top of the figure.
+# Each caption line is kept shorter than the canvas: single long lines pushed
+# the bbox_inches="tight" PDF out to ~240 mm (canvas is 7 in / ~178 mm).
 # --------------------------------------------------------------------------- #
-fig.text(0.5, 0.945,
-         "Supplementary Figure S14.  AD vs WT Stereo-seq APA effect sizes "
+fig.text(0.5, 0.985,
+         "Supplementary Figure S14.  AD vs WT Stereo-seq APA effect sizes\n"
          "(GSE263789)",
-         ha="center", va="center", fontsize=11, fontweight="bold")
-fig.text(0.5, 0.905,
+         ha="center", va="top", fontsize=11, fontweight="bold")
+fig.text(0.5, 0.885,
          r"Biological n = 1 per condition (1 AD vs 1 WT section) "
-         r"$\Rightarrow$ NO statistical test / NO FDR. "
+         r"$\Rightarrow$ NO statistical test / NO FDR." "\n"
          r"Per-gene $\Delta$=AD$_{mean}$-WT$_{mean}$ is reported for "
          r"hypothesis generation only.",
-         ha="center", va="center", fontsize=7.6, color=RED, fontweight="bold")
-fig.text(0.5, 0.045,
+         ha="center", va="top", fontsize=7.6, color=RED, fontweight="bold")
+fig.text(0.5, 0.055,
          "Spot-level (pseudoreplicated) calls are invalid here and are NOT "
-         "shown; see sample_level_note.md. "
+         "shown; see sample_level_note.md.\n"
          "Candidates require validation in an independent cohort with "
          "biological replicates.",
-         ha="center", va="center", fontsize=6.6, style="italic", color="#666")
+         ha="center", va="top", fontsize=6.6, style="italic", color="#666")
 
 out = save_supp(fig, "supp_fig14_stereo_adwt_descriptive.png")
 print(f"\n[done] Supplementary Figure S14 written to: {out}")

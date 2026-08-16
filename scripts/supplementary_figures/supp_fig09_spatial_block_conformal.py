@@ -20,6 +20,10 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _style import setup_rc, panel_label, BLUE, ORANGE, GREEN, GREY, save_supp
 
+# PAGE_WIDTH_IN is defined in main_figures/_style.py (the shared BIB page
+# geometry constant, ~7 in); mirror it here without modifying _style.py.
+PAGE_WIDTH_IN = 7.0
+
 ROOT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
 setup_rc()
 
@@ -29,11 +33,13 @@ def main():
     datasets = df["dataset"].unique()
     print(f"[S9] {len(datasets)} datasets", flush=True)
 
-    fig = plt.figure(figsize=(12, 5.5))
-    gs = fig.add_gridspec(1, 2, wspace=0.24, width_ratios=[1.15, 1.0])
+    # Print-width layout: panels stacked vertically so each keeps the full
+    # PAGE_WIDTH_IN (side-by-side squeezed the 8-pt tick labels).
+    fig = plt.figure(figsize=(PAGE_WIDTH_IN, 6.6))
+    gs = fig.add_gridspec(2, 1, hspace=0.52)
 
     # ---------- Panel A: coverage random vs block, 3 levels ----------
-    axA = fig.add_subplot(gs[0, 0])
+    axA = fig.add_subplot(gs[0, 0])  # row 0 (stacked layout)
     x = np.arange(len(datasets))
     w = 0.13
     levels = [("80%", "coverage_80", 0.80), ("90%", "coverage_90", 0.90), ("95%", "coverage_95", 0.95)]
@@ -65,7 +71,7 @@ def main():
     panel_label(axA, "A", x=-0.06, y=1.05)
 
     # ---------- Panel B: coverage gap (block - random) at 90% ----------
-    axB = fig.add_subplot(gs[0, 1])
+    axB = fig.add_subplot(gs[1, 0])  # row 1 (stacked layout)
     gaps = []
     for ds in datasets:
         rnd = df[(df["dataset"]==ds) & (df["split_type"]=="random")]["coverage_90"].values[0]
@@ -85,7 +91,7 @@ def main():
              "Gap near 0 => coverage is not driven by spatial leakage across the\n"
              "train/test boundary. Positive gap = block split is more conservative.",
              transform=axB.transAxes, fontsize=6.8, ha="center", style="italic", color="#444")
-    panel_label(axB, "B", x=-0.10, y=1.05)
+    panel_label(axB, "B", x=-0.06, y=1.05)
 
     fig.suptitle("Supplementary Figure S9 — Spatial-block conformal coverage",
                  fontsize=11, fontweight="bold", y=1.01)

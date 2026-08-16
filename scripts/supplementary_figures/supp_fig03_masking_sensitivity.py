@@ -34,8 +34,8 @@ def main():
     methods = ["spaGAPA-GP", "mean", "spatial-KNN"]
     fracs = sorted(df["mask_fraction"].unique())
 
-    fig = plt.figure(figsize=(12, 5.5))
-    gs = fig.add_gridspec(1, 2, wspace=0.25, width_ratios=[1.3, 1.0])
+    fig = plt.figure(figsize=(7.0, 3.9))
+    gs = fig.add_gridspec(1, 2, wspace=0.30, width_ratios=[1.3, 1.0])
 
     # ---------- Panel A: median per-gene RMSE by method × masking level ----------
     axA = fig.add_subplot(gs[0, 0])
@@ -70,13 +70,13 @@ def main():
                      xytext=(0, 4), textcoords="offset points", ha="center", fontsize=7.5, fontweight="bold")
     axB.set_xticks(xb); axB.set_xticklabels([METHOD_LABELS[m] for m in methods], fontsize=8)
     axB.set_ylabel("RMSE growth rate  (Δ RMSE per +10% masking)")
-    axB.set_title("Methods degrade similarly with masking", loc="left", fontsize=9.5)
+    axB.set_title("Methods degrade similarly\nwith masking", loc="left", fontsize=9.5)
     panel_label(axB, "B", x=-0.10, y=1.05)
 
     fig.suptitle("Supplementary Figure S3 — Masking-level sensitivity (GSE183456)",
                  fontsize=11, fontweight="bold", y=1.01)
-    fig.text(0.5, -0.04,
-             "n = 120 genes (obs-fraction 0.10–0.50). Median per-gene RMSE shown (robust to sparse-gene outliers). "
+    fig.text(0.5, -0.05,
+             "n = 120 genes (obs-fraction 0.10–0.50). Median per-gene RMSE shown (robust to sparse-gene outliers).\n"
              "stAPAminer/spvAPA (R-based) are reported at 20% in Fig 2; only the Python methods are swept here.",
              ha="center", fontsize=6.6, style="italic", color="#555")
     save_supp(fig, "supp_fig03_masking_sensitivity.png")

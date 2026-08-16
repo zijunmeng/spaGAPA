@@ -26,6 +26,10 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _style import setup_rc, panel_label, BLUE, ORANGE, GREEN, SKYBLU, RED, GREY, save_supp
 
+# PAGE_WIDTH_IN is defined in main_figures/_style.py (the shared BIB page
+# geometry constant, ~7 in); mirror it here without modifying _style.py.
+PAGE_WIDTH_IN = 7.0
+
 ROOT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
 setup_rc()
 
@@ -40,8 +44,10 @@ def main():
     n_dir = int(comp["direction_agree"].sum())
     n_testable = summ["n_genes_testable_sample_level"]
 
-    fig = plt.figure(figsize=(13, 9))
-    gs = fig.add_gridspec(2, 2, hspace=0.42, wspace=0.28, height_ratios=[1.0, 1.0])
+    # Print-width layout: same 2x2 grid at PAGE_WIDTH_IN; captions under
+    # panels A/C re-wrapped to the narrower panels.
+    fig = plt.figure(figsize=(PAGE_WIDTH_IN, 9.2))
+    gs = fig.add_gridspec(2, 2, hspace=0.50, wspace=0.28, height_ratios=[1.0, 1.0])
 
     # ---------- Panel A: pseudoreplication inflation ----------
     axA = fig.add_subplot(gs[0, 0])
@@ -55,12 +61,13 @@ def main():
         axA.annotate(f"{v}", xy=(b.get_x() + b.get_width()/2, v),
                      xytext=(0, 3), textcoords="offset points", ha="center",
                      fontsize=11, fontweight="bold")
-    axA.set_ylabel(f"# significant genes  (of {n_testable} testable)")
+    axA.set_ylabel(f"# significant genes\n(of {n_testable} testable)")
     axA.set_title("Pseudoreplication inflates the call set", loc="left", fontsize=9.5)
-    axA.text(0.5, -0.30,
-             "Spot-level t-test treats spots as independent replicates => 91 sig.\n"
-             "Donor-level test (correct unit) => 0 sig; 29 spot-calls agree in direction.",
-             transform=axA.transAxes, ha="center", fontsize=7, style="italic", color="#444")
+    axA.text(0.5, -0.26,
+             "Spot-level t-test treats spots as independent\n"
+             "replicates => 91 sig. Donor-level test (correct\n"
+             "unit) => 0 sig; 29 spot-calls agree in direction.",
+             transform=axA.transAxes, ha="center", va="top", fontsize=7, style="italic", color="#444")
     panel_label(axA, "A", x=-0.10, y=1.05)
 
     # ---------- Panel B: effect-size agreement (29 direction-agree genes) ----------
@@ -80,7 +87,7 @@ def main():
     axB.set_xlim(-lim, lim); axB.set_ylim(-lim, lim)
     axB.set_xlabel("Donor-level Δ (distal usage, AD − ctrl)")
     axB.set_ylabel("Spot-level Δ (AD − ctrl)")
-    axB.set_title(f"Effect sizes agree in direction (n={len(da)} genes)", loc="left", fontsize=9.5)
+    axB.set_title(f"Effect sizes agree in direction\n(n={len(da)} genes)", loc="left", fontsize=9.5)
     axB.legend(loc="lower right", fontsize=7.5)
     panel_label(axB, "B", x=-0.10, y=1.05)
 
@@ -124,7 +131,7 @@ def main():
         subR.annotate(f"{v}", xy=(b.get_x()+b.get_width()/2, v), xytext=(0, 3),
                       textcoords="offset points", ha="center", fontsize=10, fontweight="bold")
     subR.set_ylabel("# baseline-sig genes", fontsize=8)
-    subR.set_title(f"(ii) Gene-specific uncertainty filter — {compD['false_positive_reduction_pct']:.0f}% flagged",
+    subR.set_title(f"(ii) Gene-specific uncertainty filter\n— {compD['false_positive_reduction_pct']:.0f}% flagged",
                    loc="left", fontsize=8.5, color=RED)
     subR.tick_params(axis="x", labelsize=7.5); subR.tick_params(axis="y", labelsize=7.5)
 
@@ -132,13 +139,13 @@ def main():
     axC.set_title("Uncertainty-guided filtering audits the spot-level call set",
                   loc="left", fontsize=9.5, pad=6)
     axC.text(0.5, 0.03,
-             "(i) Dropping the most-uncertain spots barely changes the call count (robust). "
+             "(i) Dropping the most-uncertain spots barely changes the call count (robust).\n"
              "(ii) A gene-specific filter flags 37% of baseline calls as resting on that gene's unreliable spots.",
-             ha="center", fontsize=7, style="italic", color="#444", transform=axC.transAxes)
+             ha="center", va="bottom", fontsize=7, style="italic", color="#444", transform=axC.transAxes)
     panel_label(axC, "C", x=0.0, y=0.98)
 
-    fig.suptitle("Supplementary Figure S11 — Pseudoreplication + uncertainty-guided differential APA (GSE220442)",
-                 fontsize=11, fontweight="bold", y=0.995)
+    fig.suptitle("Supplementary Figure S11 — Pseudoreplication + uncertainty-guided\ndifferential APA (GSE220442)",
+                 fontsize=11, fontweight="bold", y=0.995, va="top")
     save_supp(fig, "supp_fig11_pseudoreplication.png")
     print(f"[S11] done (spot_sig={n_spot_sig}, sample_sig={n_sample_sig}, dir_agree={n_dir})", flush=True)
 

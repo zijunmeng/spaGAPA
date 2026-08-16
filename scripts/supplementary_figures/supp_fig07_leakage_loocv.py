@@ -29,8 +29,8 @@ def main():
     leak = pd.read_csv(os.path.join(ROOT, "pipeline_output/uncertainty_leakage_audit/clean_vs_leaked_corr.csv"))
     loocv = pd.read_csv(os.path.join(ROOT, "pipeline_output/uncertainty_loocv/loocv_results.csv"))
 
-    fig = plt.figure(figsize=(12, 5.2))
-    gs = fig.add_gridspec(1, 2, wspace=0.28)
+    fig = plt.figure(figsize=(7.0, 3.9))
+    gs = fig.add_gridspec(1, 2, wspace=0.30)
 
     # ---------- Panel A: clean vs leaked ----------
     axA = fig.add_subplot(gs[0, 0])
@@ -47,7 +47,7 @@ def main():
     axA.set_xlabel("Dataset (held-out GSE)")
     axA.set_ylabel("Pearson r (uncertainty ↔ error)")
     axA.set_ylim(0, 0.82)
-    axA.set_title("Clean vs leaked split: correlations are identical\n=> no train/test leakage in uncertainty calibration",
+    axA.set_title("Clean vs leaked split: correlations are\nidentical => no train/test leakage in\nuncertainty calibration",
                   loc="left", fontsize=9)
     axA.legend(loc="lower right", fontsize=7.5)
     panel_label(axA, "A", x=-0.08, y=1.05)
@@ -75,13 +75,13 @@ def main():
     axB.set_xlabel("LOOCV fold (one dataset held out, 4 used for selection)")
     axB.set_ylabel("Held-out Pearson r")
     axB.set_ylim(0, 0.78)
-    axB.set_title("LOOCV selects B (local-gene) on all 5 folds — stable\n(gold star = method selected on each fold)",
+    axB.set_title("LOOCV selects B (local-gene) on all\n5 folds — stable (gold star = method\nselected on each fold)",
                   loc="left", fontsize=9)
     axB.legend(loc="upper right", fontsize=7, ncol=2)
     panel_label(axB, "B", x=-0.08, y=1.05)
 
-    fig.suptitle("Supplementary Figure S7 — Uncertainty leakage audit and LOOCV method-selection stability",
-                 fontsize=11, fontweight="bold", y=1.01)
+    fig.suptitle("Supplementary Figure S7 — Uncertainty leakage audit and\nLOOCV method-selection stability",
+                 fontsize=11, fontweight="bold", y=1.02)
     save_supp(fig, "supp_fig07_leakage_loocv.png")
     print("[S7] done", flush=True)
 

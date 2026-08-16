@@ -36,13 +36,13 @@ def main():
     # mean wall time across the two transparent datasets, per method.
     wall_mean = wall.groupby("method")["wall_time_s"].mean().round(1).to_dict()
 
-    SEED_NOTE = "42 (single run; deterministic for mean/spatial-KNN; stAPAminer/spvAPA use their own RNG init)"
+    SEED_NOTE = "42; single run (deterministic for mean/KNN; R tools use own RNG)"
 
     # Order rows to match the canonical method order.
     order = [m for m in METHOD_ORDER if m in set(params["method"])]
     params = params.set_index("method").loc[order].reset_index()
 
-    fig, ax = plt.subplots(figsize=(13.5, 5.2))
+    fig, ax = plt.subplots(figsize=(7.0, 4.6))
     ax.axis("off")
 
     # Build a compact, human-readable cell text from the raw CSV fields.
@@ -69,14 +69,14 @@ def main():
             kp_parts.append(f"norm={compact(r['normalization'], 14)}")
         kp = "; ".join(kp_parts) if kp_parts else "—"
         wt = f"{wall_mean.get(m, np.nan):.1f}" if m in wall_mean else "—"
-        cell_text.append([m, compact(r["language"], 22), compact(r["neighbour_basis"], 30),
-                          compact(kp, 46), str(r["n_free_params"]), wt, compact(SEED_NOTE, 40)])
+        cell_text.append([m, compact(r["language"], 10), compact(r["neighbour_basis"], 16),
+                          compact(kp, 32), str(r["n_free_params"]), wt, compact(SEED_NOTE, 36)])
 
     tbl = ax.table(cellText=cell_text, colLabels=cols, loc="center",
-                   cellLoc="left", colLoc="center", colWidths=[0.09, 0.10, 0.16, 0.24, 0.07, 0.10, 0.24])
+                   cellLoc="left", colLoc="center", colWidths=[0.10, 0.08, 0.15, 0.24, 0.07, 0.09, 0.27])
     tbl.auto_set_font_size(False)
-    tbl.set_fontsize(7.4)
-    tbl.scale(1.0, 1.7)
+    tbl.set_fontsize(6.2)
+    tbl.scale(1.0, 1.9)
 
     for (r, c), cell in tbl.get_celld().items():
         cell.set_edgecolor("#cccccc")
@@ -96,9 +96,9 @@ def main():
                 cell.get_text().set_horizontalalignment("center")
 
     ax.set_title("Supplementary Figure S5 — Benchmark parameters, free-parameter count, and runtime\n"
-                 "All five methods run on identical hardware (S91); same held-out mask per dataset. "
+                 "All five methods run on identical hardware (S91); same held-out mask per dataset.\n"
                  "Seed = 42; single run (deterministic for mean / spatial-KNN).",
-                 loc="left", fontsize=9.5, pad=14)
+                 loc="left", fontsize=9.0, pad=14)
     panel_label(ax, "A", x=-0.02, y=1.0)
     save_supp(fig, "supp_fig05_benchmark_parameters.png")
     print("[S5] done", flush=True)

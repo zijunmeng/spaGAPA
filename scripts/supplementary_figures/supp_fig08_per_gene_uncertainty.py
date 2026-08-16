@@ -20,6 +20,10 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _style import setup_rc, panel_label, BLUE, ORANGE, GREEN, SKYBLU, RED, GREY, save_supp
 
+# PAGE_WIDTH_IN is defined in main_figures/_style.py (the shared BIB page
+# geometry constant, ~7 in); mirror it here without modifying _style.py.
+PAGE_WIDTH_IN = 7.0
+
 ROOT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
 setup_rc()
 
@@ -36,11 +40,13 @@ def main():
               .apply(lambda g: np.average(g["within_gene_r"], weights=g["n_test"]))
               .to_dict())
 
-    fig = plt.figure(figsize=(12, 7))
+    # Print-width layout: 2 columns (not 3) so each panel keeps room for the
+    # 8-pt x-axis label at PAGE_WIDTH_IN.
+    fig = plt.figure(figsize=(PAGE_WIDTH_IN, 8.2))
     n = len(datasets)
-    ncol = 3 if n >= 3 else n
+    ncol = 2 if n >= 2 else n
     nrow = int(np.ceil(n / ncol))
-    gs = fig.add_gridspec(nrow, ncol, hspace=0.5, wspace=0.28)
+    gs = fig.add_gridspec(nrow, ncol, hspace=0.45, wspace=0.28)
 
     for i, (ds, lab) in enumerate(datasets):
         ax = fig.add_subplot(gs[i // ncol, i % ncol])
@@ -66,12 +72,12 @@ def main():
     for j in range(n, nrow * ncol):
         fig.add_subplot(gs[j // ncol, j % ncol]).axis("off")
 
-    fig.suptitle("Supplementary Figure S8 — Per-gene uncertainty–error correlation distribution",
-                 fontsize=11, fontweight="bold", y=0.995)
+    fig.suptitle("Supplementary Figure S8 — Per-gene uncertainty–error\ncorrelation distribution",
+                 fontsize=11, fontweight="bold", y=0.995, va="top")
     fig.text(0.5, 0.005,
-             "Each panel = one dataset; genes weighted by #test points. Pooled r (red) is the gene-aggregated "
+             "Each panel = one dataset; genes weighted by #test points. Pooled r (red) is the gene-aggregated\n"
              "correlation; median (black dashed) is the per-gene typical value.",
-             ha="center", fontsize=7, style="italic", color="#555")
+             ha="center", va="bottom", fontsize=7, style="italic", color="#555")
     save_supp(fig, "supp_fig08_per_gene_uncertainty.png")
     print("[S8] done", flush=True)
 

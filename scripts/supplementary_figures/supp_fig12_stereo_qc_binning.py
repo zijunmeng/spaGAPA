@@ -30,6 +30,10 @@ from matplotlib.ticker import MaxNLocator
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _style import setup_rc, panel_label, BLUE, ORANGE, GREEN, SKYBLU, RED, GREY, save_supp
 
+# PAGE_WIDTH_IN is defined in main_figures/_style.py (the shared BIB page
+# geometry constant, ~7 in); mirror it here without modifying _style.py.
+PAGE_WIDTH_IN = 7.0
+
 ROOT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
 setup_rc()
 
@@ -39,8 +43,10 @@ def main():
     dists = np.load(os.path.join(ROOT, "pipeline_output/supplementary_figures/_cache/s12_tes_distances.npy"))
     binning = pd.read_csv(os.path.join(ROOT, "pipeline_output/stereo_binning_consistency/binning_correlation.csv"))
 
-    fig = plt.figure(figsize=(13, 9))
-    gs = fig.add_gridspec(2, 2, hspace=0.40, wspace=0.28, height_ratios=[1.0, 1.0])
+    # Print-width layout: same 2x2 grid at PAGE_WIDTH_IN; panel titles and
+    # the caption re-wrapped to the narrower panels.
+    fig = plt.figure(figsize=(PAGE_WIDTH_IN, 9.4))
+    gs = fig.add_gridspec(2, 2, hspace=0.46, wspace=0.28, height_ratios=[1.0, 1.0])
 
     # ---------- Panel A: PAS count by chromosome ----------
     axA = fig.add_subplot(gs[0, 0])
@@ -55,7 +61,7 @@ def main():
     axA.set_xticklabels([c.replace("chr", "") for c in order], fontsize=7.5)
     axA.set_xlabel("Chromosome")
     axA.set_ylabel("PAS count (scAPAtrap peaks)")
-    axA.set_title(f"PAS count by chromosome (n = {len(peaks):,} peaks)", loc="left", fontsize=9.5)
+    axA.set_title(f"PAS count by chromosome\n(n = {len(peaks):,} peaks)", loc="left", fontsize=9.5)
     axA.yaxis.set_major_locator(MaxNLocator(5))
     panel_label(axA, "A", x=-0.08, y=1.05)
 
@@ -71,7 +77,7 @@ def main():
     axB.axvline(med, color=RED, lw=1.4, label=f"median = {med:.0f} bp")
     axB.set_xlabel("Read 3'-end − TES  (signed, bp)")
     axB.set_ylabel("# reads")
-    axB.set_title("3'-end enrichment near gene TES (polyA-capture signature)", loc="left", fontsize=9.5)
+    axB.set_title("3'-end enrichment near gene TES\n(polyA-capture signature)", loc="left", fontsize=9.5)
     axB.legend(loc="upper left", fontsize=7.5)
     axB.text(0.98, 0.92,
              f"n = {dists.size:,} gene-annotated reads\n"
@@ -116,16 +122,16 @@ def main():
     inset.plot([50, 100, 200], mi_means, "-o", color=GREEN, ms=7, lw=2.0)
     inset.set_xlabel("bin size", fontsize=7.5)
     inset.set_ylabel("mean Moran's I", fontsize=7.5)
-    inset.set_title("Spatial signal vs bin size", fontsize=8)
+    inset.set_title("Spatial signal\nvs bin size", fontsize=8)
     inset.tick_params(labelsize=7)
     panel_label(axC, "C", x=-0.04, y=1.05)
 
-    fig.suptitle("Supplementary Figure S12 — Stereo-seq QC + binning sensitivity (GSE263789 mouse brain)",
-                 fontsize=11, fontweight="bold", y=0.995)
+    fig.suptitle("Supplementary Figure S12 — Stereo-seq QC + binning sensitivity\n(GSE263789 mouse brain)",
+                 fontsize=11, fontweight="bold", y=0.995, va="top")
     fig.text(0.5, 0.005,
-             "Panel C reports the available bin pairs (50↔100, 50↔200); a bin-500 comparison was not run for this pilot. "
+             "Panel C reports the available bin pairs (50↔100, 50↔200); a bin-500 comparison was not run for this pilot.\n"
              "Moran's I decays with coarser binning as expected.",
-             ha="center", fontsize=6.8, style="italic", color="#555")
+             ha="center", va="bottom", fontsize=6.8, style="italic", color="#555")
     save_supp(fig, "supp_fig12_stereo_qc_binning.png")
     print(f"[S12] done (peaks={len(peaks)}, reads={dists.size})", flush=True)
 
