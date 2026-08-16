@@ -8,18 +8,31 @@ Metric b: gene-level distal-usage consistency — per-caller build_gene_index
           (identical to scripts/run_svapa_topgenes.py / benchmark head-to-head:
           median oriented-position split, distal/(prox+distal), min_parent=5),
           then per-gene Pearson r across spots on shared genes.
-Writes pipeline_output/multicaller_validation/metrics_ab.json.
+Usage: python compare_callers.py --dataset gse220442_gsm6801751
+Writes <outdir>/metrics_ab.json.
 """
-import os, sys, json
+import os, sys, json, argparse
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "8")
 import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
 
-ROOT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
-BASE = os.path.join(ROOT, "data/processed/gse183456_gsm6047774_scapatrap")
-SIERRA = os.path.join(ROOT, "pipeline_output/multicaller_validation/sierra")
-OUTJSON = os.path.join(ROOT, "pipeline_output/multicaller_validation/metrics_ab.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from datasets import get as get_dataset
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--dataset", default=None)
+parser.add_argument("--baseline-dir", default=None)
+parser.add_argument("--sierra-dir", default=None)
+parser.add_argument("--out-json", default=None)
+args = parser.parse_args()
+if args.dataset:
+    ds = get_dataset(args.dataset)
+    BASE = args.baseline_dir or ds["baseline"]
+    SIERRA = args.sierra_dir or ds["outdir"]
+    OUTJSON = args.out_json or os.path.join(SIERRA, "metrics_ab.json")
+else:
+    BASE, SIERRA, OUTJSON = args.baseline_dir, args.sierra_dir, args.out_json
 MIN_PARENT = 5
 BP = 50
 

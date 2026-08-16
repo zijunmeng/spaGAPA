@@ -4,20 +4,29 @@
 mask 20% of observed entries per gene, impute with
 SparseGPImputer(n_inducing=100, length_scale_multiplier=5.0, noise_level=0.1),
 per-gene held-out RMSE for GP vs per-gene mean. 200 genes per input, seed 42.
-Writes pipeline_output/multicaller_validation/metrics_d.json.
+Usage: python gp_vs_mean.py --dataset gse220442_gsm6801751
+Writes <outdir>/metrics_d.json.
 """
-import os, sys, json, time
+import os, sys, json, time, argparse
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "8")
 import numpy as np
 import pandas as pd
 
 ROOT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from spagapa import SparseGPImputer
+from datasets import get as get_dataset
 
-BASE = os.path.join(ROOT, "data/processed/gse183456_gsm6047774_scapatrap")
-SIERRA = os.path.join(ROOT, "pipeline_output/multicaller_validation/sierra")
-OUTJSON = os.path.join(ROOT, "pipeline_output/multicaller_validation/metrics_d.json")
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--dataset", required=True,
+                    help="dataset key from datasets.py; runs both caller inputs")
+parser.add_argument("--out-json", default=None)
+args = parser.parse_args()
+ds = get_dataset(args.dataset)
+BASE = ds["baseline"]
+SIERRA = ds["outdir"]
+OUTJSON = args.out_json or os.path.join(SIERRA, "metrics_d.json")
 N_GENES = 200
 MASK_FRAC = 0.2
 SEED = 42

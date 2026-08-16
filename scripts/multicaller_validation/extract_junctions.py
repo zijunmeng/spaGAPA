@@ -1,6 +1,8 @@
 #!/usr/bin/env python
-"""Extract splice junctions from the Space Ranger possorted_genome_bam as a
+"""Extract splice junctions from a Space Ranger possorted_genome_bam as a
 regtools-style bed12 file for Sierra::FindPeaks.
+
+Usage: python extract_junctions.py --dataset gse220442_gsm6801751 [--nproc 16]
 
 Counts every N CIGAR gap of primary alignments (skips secondary/supplementary
 and unmapped). Chromosomes are split into parts for parallelism; each junction
@@ -9,18 +11,32 @@ boundary reads are never double-counted. Only junctions with >= MIN_KEEP
 supporting reads are kept (Sierra's default junction mask cutoff is
 min.jcutoff=50, so lower-count junctions can never be used anyway).
 """
-import os, pickle
+import os, pickle, argparse
 from collections import Counter
 import multiprocessing as mp
 import pysam
 
-BAM = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/gse183456_GSM6047774_sr/outs/possorted_genome_bam.bam"
-OUT_BED = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/multicaller_validation/sierra/junctions.bed"
-TMP_DIR = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/multicaller_validation/sierra/junc_tmp"
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from datasets import get as get_dataset
+
 MIN_KEEP = 25
 ANCHOR = 8
-NPROC = 16
 PART = 400  # total work units
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--dataset", required=True,
+                    help="dataset key from datasets.py (bam/outdir resolved from it)")
+parser.add_argument("--bam", default=None, help="override BAM path")
+parser.add_argument("--out-dir", default=None, help="override output dir")
+parser.add_argument("--nproc", type=int, default=16)
+args = parser.parse_args()
+ds = get_dataset(args.dataset)
+BAM = args.bam or ds["bam"]
+OUT_DIR = args.out_dir or ds["outdir"]
+OUT_BED = os.path.join(OUT_DIR, "junctions.bed")
+TMP_DIR = os.path.join(OUT_DIR, "junc_tmp")
+NPROC = args.nproc
 
 
 def worker(job):

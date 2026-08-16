@@ -1,17 +1,21 @@
 #!/usr/bin/env Rscript
-# Sierra (v0.99.27, Winnie09/Sierra) peak calling + per-spot UMI counting on the
-# GSE183456 / GSM6047774 human-kidney Visium Space Ranger BAM.
-# Second-PAS-caller robustness validation for spaGAPA.
+# Sierra (v0.99.27, Winnie09/Sierra) peak calling + per-spot UMI counting on a
+# 10x Visium Space Ranger BAM. Second-PAS-caller robustness validation for
+# spaGAPA. Datasets: GSE183456 (human kidney) / GSE220442 (human AD brain) /
+# GSE169749 (mouse colon); paths come from the driver (run_dataset.sh).
+#
+# Usage: Rscript run_sierra.R <outdir> <bam> <gtf> <junctions.bed> <whitelist.tsv> [ncores]
 .libPaths(c("/s1/SHARE/01_software/R_442_SeuratV5/library", .libPaths()))
 suppressMessages(library(Sierra))
 
-BASE <- "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
-OUT  <- file.path(BASE, "pipeline_output/multicaller_validation/sierra")
-BAM  <- file.path(BASE, "pipeline_output/gse183456_GSM6047774_sr/outs/possorted_genome_bam.bam")
-GTF  <- file.path(OUT, "genes.gtf")  # decompressed from refdata-gex-GRCh38-2024-A/genes/genes.gtf.gz
-JUNC <- file.path(OUT, "junctions.bed")
-WL   <- file.path(OUT, "whitelist_barcodes.tsv")
-NCORES <- 16
+args <- commandArgs(trailingOnly = TRUE)
+stopifnot(length(args) >= 5)
+OUT     <- args[1]
+BAM     <- args[2]
+GTF     <- args[3]
+JUNC    <- args[4]
+WL      <- args[5]
+NCORES  <- as.integer(ifelse(length(args) >= 6, args[6], 16))
 
 message("Sierra ", as.character(packageVersion("Sierra")))
 message("BAM: ", BAM)

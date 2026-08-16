@@ -1,88 +1,101 @@
-# Multi-caller robustness validation: Sierra as a second PAS caller
+# Multi-caller robustness validation: Sierra as a second PAS caller (3 datasets, 2 species, 3 tissues)
 
 ## Setup
 
-- Dataset: GSE183456 / GSM6047774, human kidney Visium, 3010 spots, 214M reads
-- Baseline caller: scAPAtrap (53,572 sites, 41,747 gene-annotated, 34,118 usage rows)
-- Second caller: **Sierra 0.99.27** (FindPeaks + CountPeaks, per-UMI deduplicated counting),
-  run on the same Space Ranger `possorted_genome_bam.bam` and the same reference GTF
-  (refdata-gex-GRCh38-2024-A) with a splice-junction BED extracted from the BAM
-  (20,644 junctions >= 25 supporting reads).
-- Sierra output: 19,575 usable peaks in 13,377 genes; after the spaGAPA >=2-sites-per-gene
-  convention: **10456 sites x 3010 spots in 4258 genes**;
-  usage matrix built with min_parent_count=5, coordinates reused from the baseline
-  (same Space Ranger run).
-- Wall time: junction extraction ~5 min (16 procs), FindPeaks 10.1 min, CountPeaks ~10 min (16 cores).
+Protocol per dataset (identical to the original GSE183456 run): Sierra 0.99.27 FindPeaks + CountPeaks
+(per-UMI deduplicated counting) on the dataset's Space Ranger `possorted_genome_bam.bam`, with a
+splice-junction BED extracted from the BAM by pysam (>= 25 supporting reads) and the same reference
+GTF the scAPAtrap baseline was annotated with (the Space Ranger reference GTF: GENCODE/Ensembl,
+chr-prefixed contigs matching the BAM header). The Sierra peak x spot UMI matrix is converted to the
+spaGAPA format (>= 2 sites per gene, usage matrix at min_parent_count = 5, baseline coordinates
+reused verbatim) and pushed through the identical spaGAPA inference without re-tuning.
 
-## Metric a - PAS overlap (summits merged at +/-50 bp, strand-aware 3'-end coordinates)
-
-- scAPAtrap points: 41,747 (gene-annotated); Sierra points: 10445
-- Clusters: **3586 shared** / 38161 scAPAtrap-only / 6601 Sierra-only; Jaccard = **0.074**
-- Per-point match rate within 50 bp: **35.3% of Sierra peaks**, 8.6% of scAPAtrap sites
-- Distance context: median nearest-neighbour distance 67 bp; 69.3% <= 100 bp, 87.5% <= 500 bp, 91.5% <= 1 kb
-- Sensitivity (Sierra gaussian-summit coordinate instead of 3'-end): 5.9% matched, Jaccard 0.012. The two callers agree far better on peak *regions* (87% within 500 bp) than on exact
-  summit coordinates (a mix of gaussian-fit summit vs narrow-peak 3' boundary conventions).
-
-## Metric b - gene-level distal-usage consistency
-
-Each caller's peaks were split at the median strand-oriented position into proximal/distal
-groups; index = distal / (proximal + distal) per spot (min_parent = 5; identical code to the
-benchmark scripts). 3,711 genes have multi-site indices in both callers.
-- Genes with >= 10 co-finite spots: **n = 814, per-gene Pearson r: median 0.514, mean 0.490**, 44.2% with r > 0.7
-- Genes with >= 30 co-finite spots: n = 537, median r = 0.385, mean 0.449
-- The r distribution is bimodal (IQR 0.04-0.97):
-  genes whose dominant PAS set is shared between callers agree almost perfectly, while
-  genes where the callers pick different sites contribute near-zero r.
-
-## Metric c - split-conformal coverage on the Sierra input (core claim)
-
-Identical protocol to scripts/calibrate_uncertainty.py (20% masking, 50/50 cal/test split,
-59,457 test points):
-
-| input | mode | 80% | 90% | 95% |
+| dataset | species / tissue | spots | junctions (>=25 reads) | Sierra peaks -> sites x spots (genes) |
 |---|---|---|---|---|
-| Sierra | global | 0.8010 | 0.9000 | 0.9495 |
-| Sierra | locally adaptive | 0.8017 | 0.9007 | 0.9491 |
-| scAPAtrap (same protocol) | global | 0.8006 | 0.9005 | 0.9510 |
+| GSE183456 / GSM6047774 | human / kidney | 3010 | 20,644 | 19,575 peaks -> **10,456 x 3010 (4,258 genes)** |
+| GSE220442 / GSM6801751 | human / brain (AD PFC, control) | 4179 | 25,455 | 17,055 peaks -> **8,400 x 4179 (3,384 genes)** |
+| GSE169749 / GSM5213483 | mouse / colon (DSS d0) | 2715 | 7,140 | 10,510 peaks -> **4,395 x 2715 (1,872 genes)** |
 
-Coverage stays at the nominal level on the second caller's output; the raw-GP std is
-over-conservative before calibration (0.976 at 80%),
-exactly as on scAPAtrap input.
+Chromosome-naming note (GSE169749, mouse): the Space Ranger BAM uses chr-prefixed contigs while the
+Ensembl GRCm39.111 GTF uses un-prefixed ones; to keep BAM/GTF consistent we used the Space Ranger
+reference's own GTF (refdata-gex-GRCm39-2024-A, GENCODE M33 = Ensembl 110, chr-prefixed) - the exact
+file the scAPAtrap baseline was annotated with, so gene ids match by construction.
 
-## Metric d - GP vs per-gene-mean RMSE (200 genes, 20% masked, seed 42)
+## GSE183456 / GSM6047774 - human kidney
 
-| input | RMSE GP (median) | RMSE mean (median) | GP better in |
-|---|---|---|---|
-| scAPAtrap | 0.0666 | 0.0403 | 15.5% |
-| Sierra | 0.3246 | 0.1296 | 0.5% |
+scAPAtrap baseline: 53,572 sites (41,747 gene-annotated, 34,118 usage rows); Sierra usable peaks: 19,575 -> 10,456 sites in 4,258 multi-site genes; 59,457 conformal test points.
 
-Qualitative pattern identical to the published supplementary analysis (S4): the per-gene mean
-is a strong RMSE baseline on both caller inputs and the GP advantage remains a minority;
-absolute RMSEs are higher on the Sierra input because its UMI-deduplicated counts are sparser.
+| metric | value |
+|---|---|
+| PAS overlap: shared / A-only / B-only clusters (+/-50 bp) | 3,586 / 38,161 / 6,601; Jaccard **0.074** |
+| per-point match within 50 bp | 35.3% of Sierra peaks, 8.6% of scAPAtrap sites |
+| nearest-neighbour distance | median 67 bp; 87.5% <= 500 bp |
+| gene-level distal usage (>= 10 co-finite spots) | n = 814, median Pearson r **0.514**, 44.2% with r > 0.7 |
+| conformal coverage, Sierra input (global) | 0.801 / 0.900 / 0.950 |
+| conformal coverage, Sierra input (locally adaptive) | 0.802 / 0.901 / 0.949 |
+| conformal coverage, scAPAtrap control (global) | 0.801 / 0.901 / 0.951 |
+| GP beats per-gene mean (RMSE, 200 genes) | scAPAtrap 15.5%, Sierra 0.5% |
+
+## GSE220442 / GSM6801751 - human brain (AD PFC, control)
+
+scAPAtrap baseline: 27,461 sites (24,098 gene-annotated, 15,355 usage rows); Sierra usable peaks: 17,055 -> 8,400 sites in 3,384 multi-site genes; 60,255 conformal test points.
+
+| metric | value |
+|---|---|
+| PAS overlap: shared / A-only / B-only clusters (+/-50 bp) | 4,939 / 19,159 / 3,260; Jaccard **0.181** |
+| per-point match within 50 bp | 60.4% of Sierra peaks, 20.5% of scAPAtrap sites |
+| nearest-neighbour distance | median 26 bp; 81.2% <= 500 bp |
+| gene-level distal usage (>= 10 co-finite spots) | n = 510, median Pearson r **0.832**, 57.5% with r > 0.7 |
+| conformal coverage, Sierra input (global) | 0.796 / 0.898 / 0.950 |
+| conformal coverage, Sierra input (locally adaptive) | 0.795 / 0.896 / 0.949 |
+| conformal coverage, scAPAtrap control (global) | 0.801 / 0.899 / 0.953 |
+| GP beats per-gene mean (RMSE, 200 genes) | scAPAtrap 8.0%, Sierra 0.5% |
+
+## GSE169749 / GSM5213483 - mouse colon (DSS d0)
+
+scAPAtrap baseline: 40,795 sites (28,910 gene-annotated, 22,282 usage rows); Sierra usable peaks: 10,510 -> 4,395 sites in 1,872 multi-site genes; 21,347 conformal test points.
+
+| metric | value |
+|---|---|
+| PAS overlap: shared / A-only / B-only clusters (+/-50 bp) | 1,695 / 27,215 / 2,667; Jaccard **0.054** |
+| per-point match within 50 bp | 39.0% of Sierra peaks, 5.9% of scAPAtrap sites |
+| nearest-neighbour distance | median 65 bp; 87.4% <= 500 bp |
+| gene-level distal usage (>= 10 co-finite spots) | n = 443, median Pearson r **0.692**, 49.9% with r > 0.7 |
+| conformal coverage, Sierra input (global) | 0.804 / 0.899 / 0.950 |
+| conformal coverage, Sierra input (locally adaptive) | 0.804 / 0.900 / 0.950 |
+| conformal coverage, scAPAtrap control (global) | 0.802 / 0.900 / 0.948 |
+| GP beats per-gene mean (RMSE, 200 genes) | scAPAtrap 19.5%, Sierra 1.0% |
+
+## Cross-dataset summary
+
+| dataset | species | tissue | n sites (genes) | n test | coverage 80/90/95 global | local | median r (>=10 spots) | Jaccard | GP>mean (Sierra) |
+|---|---|---|---|---|---|---|---|---|---|
+| GSE183456 / GSM6047774 | human | kidney | 10,456 (4,258) | 59,457 | 0.801/0.900/0.950 | 0.802/0.901/0.949 | 0.51 | 0.07 | 0.5% |
+| GSE220442 / GSM6801751 | human | brain | 8,400 (3,384) | 60,255 | 0.796/0.898/0.950 | 0.795/0.896/0.949 | 0.83 | 0.18 | 0.5% |
+| GSE169749 / GSM5213483 | mouse | colon | 4,395 (1,872) | 21,347 | 0.804/0.899/0.950 | 0.804/0.900/0.950 | 0.69 | 0.05 | 1.0% |
+
+**Max deviation of Sierra-input conformal coverage from nominal across all datasets, levels and
+modes: 0.5 pp** (per level: 80% 0.5 pp, 90% 0.4 pp, 95% 0.1 pp).
 
 ## Conclusion
 
-Swapping the PAS caller (scAPAtrap -> Sierra) leaves the spaGAPA framework fully functional:
-a plain format conversion (peak x spot usage matrix + the same coordinates) is all that is
-needed; split-conformal coverage stays nominal (0.801 / 0.900 / 0.950 at 80/90/95%);
-gene-level distal usage agrees across callers at median per-gene r = 0.51 (44% of genes r > 0.7); and the
-GP-vs-mean RMSE picture is unchanged. Statistical conclusions are therefore robust to the
-choice of PAS caller.
+Across three datasets spanning two species (human/mouse) and three tissues (kidney/brain/colon), swapping the PAS caller (scAPAtrap -> Sierra) leaves split-conformal coverage at nominal (max deviation 0.5 pp at all levels, global and locally adaptive). Gene-level distal usage agrees across callers at median per-gene Pearson r = 0.51, 0.83, 0.69 (kidney/brain/colon); the per-gene mean remains a strong RMSE baseline on both caller inputs in
+every dataset; PAS overlap itself is caller-dependent (Jaccard 0.05-0.18 at +/-50 bp) but
+with the large majority of Sierra peaks within 500 bp of a scAPAtrap site in every dataset.
+Statistical conclusions are therefore robust to the choice of PAS caller across species and tissues.
 
 ## Methods-ready paragraph (English)
 
-> **Caller robustness.** To test whether our conclusions depend on the PAS caller, we
-> re-called PAS on the same Space Ranger BAM of GSE183456 with Sierra (v0.99.27) using
-> its default FindPeaks/CountPeaks workflow with UMI-deduplicated counting, obtaining
-> 19,575 peaks in 13,377 genes (10456 sites in 4258 multi-site genes after the
-> >=2-sites-per-gene convention). The resulting peak-by-spot usage matrix was passed through
-> the identical spaGAPA pipeline without any re-tuning. Split-conformal prediction intervals
-> retained nominal marginal coverage (80%: 0.801; 90%: 0.900; 95%: 0.950; locally adaptive variant 0.802/0.901/0.949),
-> matching the scAPAtrap-based analysis (0.801/0.901/0.951).
-> Cross-caller agreement was 35% of Sierra peaks within 50 bp of a
-> scAPAtrap site (87% within 500 bp; Jaccard of +/-50 bp merged clusters
-> 0.07), and gene-level distal-usage indices computed independently from
-> each caller correlated at median per-gene Pearson r = 0.51 across spots
-> (n = 814 genes with >= 10 shared informative spots). The qualitative
-> GP-vs-mean imputation comparison was likewise unchanged. These results indicate that the
-> framework's statistical guarantees do not rely on a particular PAS caller.
+> **Caller robustness.** To test whether our conclusions depend on the PAS caller, we re-called PAS
+> on the same Space Ranger BAMs of three Visium datasets spanning two species and three tissues
+> (GSE183456 human kidney; GSE220442 human AD-brain prefrontal cortex; GSE169749 mouse colon) with
+> Sierra (v0.99.27) using its default FindPeaks/CountPeaks workflow with UMI-deduplicated counting
+> against each dataset's Space Ranger reference GTF. After the >=2-sites-per-gene convention this
+> yielded 10,456 sites in 4,258 genes (GSE183456), 8,400 sites in 3,384 genes (GSE220442), 4,395 sites in 1,872 genes (GSE169749). Each peak-by-spot usage matrix was passed through the
+> identical spaGAPA pipeline without any re-tuning. Split-conformal prediction intervals retained
+> nominal marginal coverage on every dataset (max deviation from nominal 0.5 percentage points at 80/90/95%, global and
+> locally adaptive), matching the scAPAtrap-based analyses of the same data. Cross-caller agreement
+> was 35% / 60% / 39% of Sierra peaks within 50 bp of a scAPAtrap site (kidney/brain/colon), and gene-level distal-usage indices computed
+> independently from each caller correlated at median per-gene Pearson r = 0.51 (n = 814) / 0.83 (n = 510) / 0.69 (n = 443). The qualitative GP-vs-mean imputation comparison was likewise
+> unchanged. These results indicate that the framework's statistical guarantees do not rely on a
+> particular PAS caller.

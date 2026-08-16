@@ -1,168 +1,267 @@
 #!/usr/bin/env python
 """Assemble pipeline_output/multicaller_validation/summary.json + report.md
-from the metric JSONs produced by the multi-caller validation runs."""
-import json, os
+from the per-dataset metric JSONs of the multi-caller validation runs.
 
-ROOT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA"
-MC = os.path.join(ROOT, "pipeline_output/multicaller_validation")
+Datasets (2 species x 3 tissues):
+  gse183456_gsm6047774  human kidney      (original run; outputs in sierra/)
+  gse220442_gsm6801751  human AD brain    ( Visium, control sample)
+  gse169749_gsm5213483  mouse colon       ( Visium, DSS day-0)
+Each dataset contributes: Sierra qc, metric a (PAS overlap), metric b
+(gene-level distal usage), metric c (split-conformal coverage, Sierra input +
+scAPAtrap same-protocol control), metric d (GP-vs-mean RMSE on both inputs).
+"""
+import json, os, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from datasets import DATASETS, ROOT
+
+MC = os.path.join(ROOT, "pipeline_output", "multicaller_validation")
+
+# dataset display order + per-dataset file locations (gse183456 predates the
+# per-dataset layout: its metric JSONs sit at the MC root)
+ORDER = ["gse183456_gsm6047774", "gse220442_gsm6801751", "gse169749_gsm5213483"]
+DISPLAY = {
+    "gse183456_gsm6047774": ("GSE183456 / GSM6047774", "human", "kidney", "3010 spots, 214M reads"),
+    "gse220442_gsm6801751": ("GSE220442 / GSM6801751", "human", "brain (AD PFC, control)", "4179 spots"),
+    "gse169749_gsm5213483": ("GSE169749 / GSM5213483", "mouse", "colon (DSS d0)", "2715 spots, 277M reads"),
+}
 
 
-def load(p):
-    with open(os.path.join(MC, p)) as f:
+def load(path):
+    with open(path) as f:
         return json.load(f)
 
 
+def dataset_files(key):
+    ds = DATASETS[key]
+    out = ds["outdir"]
+    root_legacy = key == "gse183456_gsm6047774"
+    return {
+        "qc": os.path.join(out, "qc_summary.json"),
+        "ab": os.path.join(MC, "metrics_ab.json") if root_legacy else os.path.join(out, "metrics_ab.json"),
+        "d": os.path.join(MC, "metrics_d.json") if root_legacy else os.path.join(out, "metrics_d.json"),
+        "sierra_cal": os.path.join(out, "conformal", "uncertainty_calibration.json"),
+        "base_cal": os.path.join(MC, "scapatrap_conformal", "uncertainty_calibration.json")
+                    if root_legacy else os.path.join(out, "scapatrap_conformal", "uncertainty_calibration.json"),
+        "baseline_qc": os.path.join(ds["baseline"], "qc_summary.json"),
+        "junctions": os.path.join(out, "junctions.bed"),
+    }
+
+
 def main():
-    ab = load("metrics_ab.json")
-    d = load("metrics_d.json")
-    sierra_cal = load("sierra/conformal/uncertainty_calibration.json")
-    base_cal = load("scapatrap_conformal/uncertainty_calibration.json")
-    qc = load("sierra/qc_summary.json")
+    per = {}
+    for key in ORDER:
+        f = dataset_files(key)
+        qc = load(f["qc"])
+        ab = load(f["ab"])
+        d = load(f["d"])
+        sc_cal = load(f["sierra_cal"])
+        bs_cal = load(f["base_cal"])
+        bqc = load(f["baseline_qc"])
+        n_junc = sum(1 for _ in open(f["junctions"])) if os.path.exists(f["junctions"]) else None
+        label, species, tissue, detail = DISPLAY[key]
+        per[key] = {
+            "label": label, "species": species, "tissue": tissue, "detail": detail,
+            "n_junctions": n_junc,
+            "baseline": {
+                "caller": "scAPAtrap",
+                "n_spots": bqc["n_spots"],
+                "n_called_sites": bqc.get("n_called_sites"),
+                "n_gene_annotated_sites": bqc.get("n_gene_annotated_sites"),
+                "n_apa_usage_sites": bqc.get("n_apa_usage_sites"),
+            },
+            "sierra": qc,
+            "metric_a_pas_overlap": {
+                **ab["overlap"],
+                "summit_convention_sensitivity": ab["overlap_summit_convention"],
+                "nearest_distance": ab["nearest_distance"],
+            },
+            "metric_b_gene_level": ab["gene_level"],
+            "metric_c_conformal_coverage": {
+                "sierra_input": {
+                    "n_genes": sc_cal["config"]["n_genes"],
+                    "n_spots": sc_cal["config"]["n_spots"],
+                    "n_test": sc_cal["config"]["n_test"],
+                    "before_raw_gp": sc_cal["before"]["coverage"],
+                    "after_conformal_global": sc_cal["after"]["modes"]["global"]["coverage"],
+                    "after_conformal_locally_adaptive": sc_cal["after"]["modes"]["locally_adaptive"]["coverage"],
+                },
+                "scapatrap_input_same_protocol": {
+                    "n_genes": bs_cal["config"]["n_genes"],
+                    "n_test": bs_cal["config"]["n_test"],
+                    "after_conformal_global": bs_cal["after"]["modes"]["global"]["coverage"],
+                    "after_conformal_locally_adaptive": bs_cal["after"]["modes"]["locally_adaptive"]["coverage"],
+                },
+            },
+            "metric_d_gp_vs_mean": d,
+        }
+
+    # ---------------- cross-dataset coverage deviations (core claim) ----------
+    levels = ["80pct", "90pct", "95pct"]
+    nominal = {"80pct": 0.80, "90pct": 0.90, "95pct": 0.95}
+    devs = []
+    for key in ORDER:
+        mc3 = per[key]["metric_c_conformal_coverage"]
+        for mode in ("after_conformal_global", "after_conformal_locally_adaptive"):
+            for lv in levels:
+                devs.append(abs(mc3["sierra_input"][mode][lv] - nominal[lv]))
+    max_dev_pp = 100 * max(devs)
 
     summary = {
-        "dataset": "GSE183456 / GSM6047774 (human kidney Visium, 10x Space Ranger, 3010 spots)",
-        "baseline_caller": "scAPAtrap (53,572 sites; 34,118 usage rows)",
-        "second_caller": "Sierra 0.99.27 (Winnie09/Sierra; FindPeaks + CountPeaks with UMI dedup)",
-        "input_bam": "pipeline_output/gse183456_GSM6047774_sr/outs/possorted_genome_bam.bam",
-        "reference_gtf": "refdata-gex-GRCh38-2024-A/genes/genes.gtf.gz (Space Ranger reference)",
-        "sierra_run": qc,
-        "metric_a_pas_overlap": {
-            **ab["overlap"],
-            "summit_convention_sensitivity": ab["overlap_summit_convention"],
-            "nearest_distance": ab["nearest_distance"],
+        "title": "Multi-caller robustness validation: Sierra as a second PAS caller, 3 datasets (2 species x 3 tissues)",
+        "protocol": ("Sierra 0.99.27 FindPeaks + CountPeaks (UMI-deduplicated) on each dataset's Space Ranger "
+                     "possorted_genome_bam.bam with a pysam-extracted splice-junction BED (>=25 reads) and the "
+                     "same reference GTF the scAPAtrap baseline used; output converted to the spaGAPA usage-matrix "
+                     "format (min_parent=5, baseline coordinates reused); identical spaGAPA inference "
+                     "(split conformal 20% masking, 50/50 cal/test, global + locally adaptive)."),
+        "datasets": per,
+        "cross_dataset": {
+            "n_datasets": len(ORDER),
+            "species": ["human", "mouse"],
+            "tissues": ["kidney", "brain (AD PFC)", "colon (DSS)"],
+            "sierra_coverage_max_abs_deviation_pp": {lv: None for lv in levels},
+            "sierra_coverage_max_abs_deviation_overall_pp": max_dev_pp,
+            "headline": (
+                f"Across three datasets spanning two species (human/mouse) and three tissues "
+                f"(kidney/brain/colon), swapping the PAS caller (scAPAtrap -> Sierra) leaves "
+                f"split-conformal coverage at nominal (max deviation {max_dev_pp:.1f} pp at all levels, "
+                f"global and locally adaptive)."),
         },
-        "metric_b_gene_level": ab["gene_level"],
-        "metric_c_conformal_coverage": {
-            "sierra_input": {
-                "n_genes": sierra_cal["config"]["n_genes"],
-                "n_spots": sierra_cal["config"]["n_spots"],
-                "n_test": sierra_cal["config"]["n_test"],
-                "before_raw_gp": sierra_cal["before"]["coverage"],
-                "after_conformal_global": sierra_cal["after"]["modes"]["global"]["coverage"],
-                "after_conformal_locally_adaptive": sierra_cal["after"]["modes"]["locally_adaptive"]["coverage"],
-            },
-            "scapatrap_input_same_protocol": {
-                "n_genes": base_cal["config"]["n_genes"],
-                "n_test": base_cal["config"]["n_test"],
-                "after_conformal_global": base_cal["after"]["modes"]["global"]["coverage"],
-                "after_conformal_locally_adaptive": base_cal["after"]["modes"]["locally_adaptive"]["coverage"],
-            },
-        },
-        "metric_d_gp_vs_mean": d,
     }
+    for lv in levels:
+        summary["cross_dataset"]["sierra_coverage_max_abs_deviation_pp"][lv] = 100 * max(
+            abs(per[k]["metric_c_conformal_coverage"]["sierra_input"][m][lv] - nominal[lv])
+            for k in ORDER for m in ("after_conformal_global", "after_conformal_locally_adaptive"))
+
     with open(os.path.join(MC, "summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
     print(f"[out] {os.path.join(MC, 'summary.json')}")
 
     # ------------------------------------------------------------------ report
-    ov = ab["overlap"]; ov2 = ab["overlap_summit_convention"]; nd = ab["nearest_distance"]
-    g10 = ab["gene_level"]["min10spots"]; g30 = ab["gene_level"]["min30spots"]
-    sc = sierra_cal["after"]["modes"]["global"]["coverage"]
-    sl = sierra_cal["after"]["modes"]["locally_adaptive"]["coverage"]
-    bc = base_cal["after"]["modes"]["global"]["coverage"]
-    ds, dsi = d["scapatrap"], d["sierra"]
     lines = []
     A = lines.append
-    A("# Multi-caller robustness validation: Sierra as a second PAS caller")
+    A("# Multi-caller robustness validation: Sierra as a second PAS caller (3 datasets, 2 species, 3 tissues)")
     A("")
     A("## Setup")
     A("")
-    A("- Dataset: GSE183456 / GSM6047774, human kidney Visium, 3010 spots, 214M reads")
-    A("- Baseline caller: scAPAtrap (53,572 sites, 41,747 gene-annotated, 34,118 usage rows)")
-    A("- Second caller: **Sierra 0.99.27** (FindPeaks + CountPeaks, per-UMI deduplicated counting),")
-    A("  run on the same Space Ranger `possorted_genome_bam.bam` and the same reference GTF")
-    A("  (refdata-gex-GRCh38-2024-A) with a splice-junction BED extracted from the BAM")
-    A("  (20,644 junctions >= 25 supporting reads).")
-    A(f"- Sierra output: 19,575 usable peaks in 13,377 genes; after the spaGAPA >=2-sites-per-gene")
-    A(f"  convention: **{qc['n_sites_ge2']} sites x {qc['n_spots']} spots in {qc['n_genes_ge2']} genes**;")
-    A("  usage matrix built with min_parent_count=5, coordinates reused from the baseline")
-    A("  (same Space Ranger run).")
-    A("- Wall time: junction extraction ~5 min (16 procs), FindPeaks 10.1 min, CountPeaks ~10 min (16 cores).")
+    A("Protocol per dataset (identical to the original GSE183456 run): Sierra 0.99.27 FindPeaks + CountPeaks")
+    A("(per-UMI deduplicated counting) on the dataset's Space Ranger `possorted_genome_bam.bam`, with a")
+    A("splice-junction BED extracted from the BAM by pysam (>= 25 supporting reads) and the same reference")
+    A("GTF the scAPAtrap baseline was annotated with (the Space Ranger reference GTF: GENCODE/Ensembl,")
+    A("chr-prefixed contigs matching the BAM header). The Sierra peak x spot UMI matrix is converted to the")
+    A("spaGAPA format (>= 2 sites per gene, usage matrix at min_parent_count = 5, baseline coordinates")
+    A("reused verbatim) and pushed through the identical spaGAPA inference without re-tuning.")
     A("")
-    A("## Metric a - PAS overlap (summits merged at +/-50 bp, strand-aware 3'-end coordinates)")
-    A("")
-    A(f"- scAPAtrap points: 41,747 (gene-annotated); Sierra points: {ov['callerB_points_total']}")
-    A(f"- Clusters: **{ov['shared_clusters']} shared** / {ov['unique_callerA_clusters']} scAPAtrap-only / "
-      f"{ov['unique_callerB_clusters']} Sierra-only; Jaccard = **{ov['jaccard_clusters']:.3f}**")
-    A(f"- Per-point match rate within 50 bp: **{ov['callerB_frac_matched']:.1%} of Sierra peaks**, "
-      f"{ov['callerA_frac_matched']:.1%} of scAPAtrap sites")
-    A(f"- Distance context: median nearest-neighbour distance {nd['median_bp']:.0f} bp; "
-      f"{nd['frac_le_100bp']:.1%} <= 100 bp, {nd['frac_le_500bp']:.1%} <= 500 bp, "
-      f"{nd['frac_le_1000bp']:.1%} <= 1 kb")
-    A(f"- Sensitivity (Sierra gaussian-summit coordinate instead of 3'-end): "
-      f"{ov2['callerB_frac_matched']:.1%} matched, Jaccard {ov2['jaccard_clusters']:.3f}. "
-      "The two callers agree far better on peak *regions* (87% within 500 bp) than on exact")
-    A("  summit coordinates (a mix of gaussian-fit summit vs narrow-peak 3' boundary conventions).")
-    A("")
-    A("## Metric b - gene-level distal-usage consistency")
-    A("")
-    A("Each caller's peaks were split at the median strand-oriented position into proximal/distal")
-    A("groups; index = distal / (proximal + distal) per spot (min_parent = 5; identical code to the")
-    A("benchmark scripts). 3,711 genes have multi-site indices in both callers.")
-    A(f"- Genes with >= 10 co-finite spots: **n = {g10['n_genes_compared']}, per-gene Pearson r: "
-      f"median {g10['pearson_r_median']:.3f}, mean {g10['pearson_r_mean']:.3f}**, "
-      f"{g10['frac_r_gt_0.7']:.1%} with r > 0.7")
-    A(f"- Genes with >= 30 co-finite spots: n = {g30['n_genes_compared']}, median r = "
-      f"{g30['pearson_r_median']:.3f}, mean {g30['pearson_r_mean']:.3f}")
-    A(f"- The r distribution is bimodal (IQR {g10['pearson_r_q25']:.2f}-{g10['pearson_r_q75']:.2f}):")
-    A("  genes whose dominant PAS set is shared between callers agree almost perfectly, while")
-    A("  genes where the callers pick different sites contribute near-zero r.")
-    A("")
-    A("## Metric c - split-conformal coverage on the Sierra input (core claim)")
-    A("")
-    A(f"Identical protocol to scripts/calibrate_uncertainty.py (20% masking, 50/50 cal/test split,")
-    A(f"{sierra_cal['config']['n_test']:,} test points):")
-    A("")
-    A("| input | mode | 80% | 90% | 95% |")
+    A("| dataset | species / tissue | spots | junctions (>=25 reads) | Sierra peaks -> sites x spots (genes) |")
     A("|---|---|---|---|---|")
-    A(f"| Sierra | global | {sc['80pct']:.4f} | {sc['90pct']:.4f} | {sc['95pct']:.4f} |")
-    A(f"| Sierra | locally adaptive | {sl['80pct']:.4f} | {sl['90pct']:.4f} | {sl['95pct']:.4f} |")
-    A(f"| scAPAtrap (same protocol) | global | {bc['80pct']:.4f} | {bc['90pct']:.4f} | {bc['95pct']:.4f} |")
+    for key in ORDER:
+        p = per[key]
+        A(f"| {p['label']} | {p['species']} / {p['tissue']} | {p['baseline']['n_spots']} | "
+          f"{p['n_junctions']:,} | {p['sierra']['n_peaks_raw_all_genes']:,} peaks -> "
+          f"**{p['sierra']['n_sites_ge2']:,} x {p['sierra']['n_spots']} ({p['sierra']['n_genes_ge2']:,} genes)** |")
     A("")
-    A("Coverage stays at the nominal level on the second caller's output; the raw-GP std is")
-    A(f"over-conservative before calibration ({sierra_cal['before']['coverage']['80pct']:.3f} at 80%),")
-    A("exactly as on scAPAtrap input.")
+    A("Chromosome-naming note (GSE169749, mouse): the Space Ranger BAM uses chr-prefixed contigs while the")
+    A("Ensembl GRCm39.111 GTF uses un-prefixed ones; to keep BAM/GTF consistent we used the Space Ranger")
+    A("reference's own GTF (refdata-gex-GRCm39-2024-A, GENCODE M33 = Ensembl 110, chr-prefixed) - the exact")
+    A("file the scAPAtrap baseline was annotated with, so gene ids match by construction.")
     A("")
-    A("## Metric d - GP vs per-gene-mean RMSE (200 genes, 20% masked, seed 42)")
+
+    # ---------------- per-dataset sections ----------------
+    for key in ORDER:
+        p = per[key]
+        ov = p["metric_a_pas_overlap"]; ov2 = ov["summit_convention_sensitivity"]; nd = ov["nearest_distance"]
+        g10 = p["metric_b_gene_level"]["min10spots"]; g30 = p["metric_b_gene_level"]["min30spots"]
+        sc = p["metric_c_conformal_coverage"]
+        sg = sc["sierra_input"]["after_conformal_global"]; sl = sc["sierra_input"]["after_conformal_locally_adaptive"]
+        bg = sc["scapatrap_input_same_protocol"]["after_conformal_global"]
+        ds, dsi = p["metric_d_gp_vs_mean"]["scapatrap"], p["metric_d_gp_vs_mean"]["sierra"]
+        A(f"## {p['label']} - {p['species']} {p['tissue']}")
+        A("")
+        A(f"scAPAtrap baseline: {p['baseline']['n_called_sites']:,} sites "
+          f"({p['baseline']['n_gene_annotated_sites']:,} gene-annotated, "
+          f"{p['baseline']['n_apa_usage_sites']:,} usage rows); Sierra usable peaks: "
+          f"{p['sierra']['n_peaks_raw_all_genes']:,} -> {p['sierra']['n_sites_ge2']:,} sites in "
+          f"{p['sierra']['n_genes_ge2']:,} multi-site genes; {sc['sierra_input']['n_test']:,} conformal test points.")
+        A("")
+        A("| metric | value |")
+        A("|---|---|")
+        A(f"| PAS overlap: shared / A-only / B-only clusters (+/-50 bp) | {ov['shared_clusters']:,} / "
+          f"{ov['unique_callerA_clusters']:,} / {ov['unique_callerB_clusters']:,}; "
+          f"Jaccard **{ov['jaccard_clusters']:.3f}** |")
+        A(f"| per-point match within 50 bp | {ov['callerB_frac_matched']:.1%} of Sierra peaks, "
+          f"{ov['callerA_frac_matched']:.1%} of scAPAtrap sites |")
+        A(f"| nearest-neighbour distance | median {nd['median_bp']:.0f} bp; "
+          f"{nd['frac_le_500bp']:.1%} <= 500 bp |")
+        A(f"| gene-level distal usage (>= 10 co-finite spots) | n = {g10['n_genes_compared']}, "
+          f"median Pearson r **{g10['pearson_r_median']:.3f}**, "
+          f"{g10['frac_r_gt_0.7']:.1%} with r > 0.7 |")
+        A(f"| conformal coverage, Sierra input (global) | {sg['80pct']:.3f} / {sg['90pct']:.3f} / {sg['95pct']:.3f} |")
+        A(f"| conformal coverage, Sierra input (locally adaptive) | {sl['80pct']:.3f} / {sl['90pct']:.3f} / {sl['95pct']:.3f} |")
+        A(f"| conformal coverage, scAPAtrap control (global) | {bg['80pct']:.3f} / {bg['90pct']:.3f} / {bg['95pct']:.3f} |")
+        A(f"| GP beats per-gene mean (RMSE, 200 genes) | scAPAtrap {ds['frac_gp_better']:.1%}, "
+          f"Sierra {dsi['frac_gp_better']:.1%} |")
+        A("")
+
+    # ---------------- cross-dataset table ----------------
+    A("## Cross-dataset summary")
     A("")
-    A("| input | RMSE GP (median) | RMSE mean (median) | GP better in |")
-    A("|---|---|---|---|")
-    A(f"| scAPAtrap | {ds['rmse_gp_median']:.4f} | {ds['rmse_mean_median']:.4f} | {ds['frac_gp_better']:.1%} |")
-    A(f"| Sierra | {dsi['rmse_gp_median']:.4f} | {dsi['rmse_mean_median']:.4f} | {dsi['frac_gp_better']:.1%} |")
+    A("| dataset | species | tissue | n sites (genes) | n test | coverage 80/90/95 global | local | median r (>=10 spots) | Jaccard | GP>mean (Sierra) |")
+    A("|---|---|---|---|---|---|---|---|---|---|")
+    for key in ORDER:
+        p = per[key]
+        sg = p["metric_c_conformal_coverage"]["sierra_input"]["after_conformal_global"]
+        sl = p["metric_c_conformal_coverage"]["sierra_input"]["after_conformal_locally_adaptive"]
+        g10 = p["metric_b_gene_level"]["min10spots"]
+        A(f"| {p['label']} | {p['species']} | {p['tissue'].split(' (')[0]} | "
+          f"{p['sierra']['n_sites_ge2']:,} ({p['sierra']['n_genes_ge2']:,}) | "
+          f"{p['metric_c_conformal_coverage']['sierra_input']['n_test']:,} | "
+          f"{sg['80pct']:.3f}/{sg['90pct']:.3f}/{sg['95pct']:.3f} | "
+          f"{sl['80pct']:.3f}/{sl['90pct']:.3f}/{sl['95pct']:.3f} | "
+          f"{g10['pearson_r_median']:.2f} | "
+          f"{p['metric_a_pas_overlap']['jaccard_clusters']:.2f} | "
+          f"{p['metric_d_gp_vs_mean']['sierra']['frac_gp_better']:.1%} |")
     A("")
-    A("Qualitative pattern identical to the published supplementary analysis (S4): the per-gene mean")
-    A("is a strong RMSE baseline on both caller inputs and the GP advantage remains a minority;")
-    A("absolute RMSEs are higher on the Sierra input because its UMI-deduplicated counts are sparser.")
+    cd = summary["cross_dataset"]
+    A(f"**Max deviation of Sierra-input conformal coverage from nominal across all datasets, levels and")
+    A(f"modes: {cd['sierra_coverage_max_abs_deviation_overall_pp']:.1f} pp** "
+      f"(per level: 80% {cd['sierra_coverage_max_abs_deviation_pp']['80pct']:.1f} pp, "
+      f"90% {cd['sierra_coverage_max_abs_deviation_pp']['90pct']:.1f} pp, "
+      f"95% {cd['sierra_coverage_max_abs_deviation_pp']['95pct']:.1f} pp).")
     A("")
     A("## Conclusion")
     A("")
-    A(f"Swapping the PAS caller (scAPAtrap -> Sierra) leaves the spaGAPA framework fully functional:")
-    A("a plain format conversion (peak x spot usage matrix + the same coordinates) is all that is")
-    A(f"needed; split-conformal coverage stays nominal (0.801 / 0.900 / 0.950 at 80/90/95%);")
-    A(f"gene-level distal usage agrees across callers at median per-gene r = "
-      f"{g10['pearson_r_median']:.2f} ({g10['frac_r_gt_0.7']:.0%} of genes r > 0.7); and the")
-    A("GP-vs-mean RMSE picture is unchanged. Statistical conclusions are therefore robust to the")
-    A("choice of PAS caller.")
+    jmin = min(per[k]["metric_a_pas_overlap"]["jaccard_clusters"] for k in ORDER)
+    jmax = max(per[k]["metric_a_pas_overlap"]["jaccard_clusters"] for k in ORDER)
+    A(cd["headline"] + " Gene-level distal usage agrees across callers at median per-gene Pearson r = "
+      + ", ".join(f"{per[k]['metric_b_gene_level']['min10spots']['pearson_r_median']:.2f}" for k in ORDER)
+      + " (kidney/brain/colon); the per-gene mean remains a strong RMSE baseline on both caller inputs in")
+    A(f"every dataset; PAS overlap itself is caller-dependent (Jaccard {jmin:.2f}-{jmax:.2f} at +/-50 bp) but")
+    A("with the large majority of Sierra peaks within 500 bp of a scAPAtrap site in every dataset.")
+    A("Statistical conclusions are therefore robust to the choice of PAS caller across species and tissues.")
     A("")
     A("## Methods-ready paragraph (English)")
     A("")
-    A(f"> **Caller robustness.** To test whether our conclusions depend on the PAS caller, we")
-    A(f"> re-called PAS on the same Space Ranger BAM of GSE183456 with Sierra (v0.99.27) using")
-    A(f"> its default FindPeaks/CountPeaks workflow with UMI-deduplicated counting, obtaining")
-    A(f"> 19,575 peaks in 13,377 genes ({qc['n_sites_ge2']} sites in {qc['n_genes_ge2']} multi-site genes after the")
-    A(f"> >=2-sites-per-gene convention). The resulting peak-by-spot usage matrix was passed through")
-    A(f"> the identical spaGAPA pipeline without any re-tuning. Split-conformal prediction intervals")
-    A(f"> retained nominal marginal coverage (80%: {sc['80pct']:.3f}; 90%: {sc['90pct']:.3f}; 95%: "
-      f"{sc['95pct']:.3f}; locally adaptive variant {sl['80pct']:.3f}/{sl['90pct']:.3f}/{sl['95pct']:.3f}),")
-    A(f"> matching the scAPAtrap-based analysis ({bc['80pct']:.3f}/{bc['90pct']:.3f}/{bc['95pct']:.3f}).")
-    A(f"> Cross-caller agreement was {ov['callerB_frac_matched']:.0%} of Sierra peaks within 50 bp of a")
-    A(f"> scAPAtrap site ({nd['frac_le_500bp']:.0%} within 500 bp; Jaccard of +/-50 bp merged clusters")
-    A(f"> {ov['jaccard_clusters']:.2f}), and gene-level distal-usage indices computed independently from")
-    A(f"> each caller correlated at median per-gene Pearson r = {g10['pearson_r_median']:.2f} across spots")
-    A(f"> (n = {g10['n_genes_compared']} genes with >= 10 shared informative spots). The qualitative")
-    A(f"> GP-vs-mean imputation comparison was likewise unchanged. These results indicate that the")
-    A(f"> framework's statistical guarantees do not rely on a particular PAS caller.")
+    A("> **Caller robustness.** To test whether our conclusions depend on the PAS caller, we re-called PAS")
+    A("> on the same Space Ranger BAMs of three Visium datasets spanning two species and three tissues")
+    A("> (GSE183456 human kidney; GSE220442 human AD-brain prefrontal cortex; GSE169749 mouse colon) with")
+    A("> Sierra (v0.99.27) using its default FindPeaks/CountPeaks workflow with UMI-deduplicated counting")
+    A("> against each dataset's Space Ranger reference GTF. After the >=2-sites-per-gene convention this")
+    A("> yielded " + ", ".join(f"{per[k]['sierra']['n_sites_ge2']:,} sites in {per[k]['sierra']['n_genes_ge2']:,} genes ({per[k]['label'].split(' / ')[0]})"
+                              for k in ORDER) + ". Each peak-by-spot usage matrix was passed through the")
+    A("> identical spaGAPA pipeline without any re-tuning. Split-conformal prediction intervals retained")
+    A("> nominal marginal coverage on every dataset (max deviation from nominal "
+      f"{cd['sierra_coverage_max_abs_deviation_overall_pp']:.1f} percentage points at 80/90/95%, global and")
+    A("> locally adaptive), matching the scAPAtrap-based analyses of the same data. Cross-caller agreement")
+    A("> was "
+      + " / ".join(f"{per[k]['metric_a_pas_overlap']['callerB_frac_matched']:.0%}" for k in ORDER)
+      + " of Sierra peaks within 50 bp of a scAPAtrap site (kidney/brain/colon), and gene-level distal-usage indices computed")
+    A("> independently from each caller correlated at median per-gene Pearson r = "
+      + " / ".join(f"{per[k]['metric_b_gene_level']['min10spots']['pearson_r_median']:.2f} (n = {per[k]['metric_b_gene_level']['min10spots']['n_genes_compared']})"
+                  for k in ORDER) + ". The qualitative GP-vs-mean imputation comparison was likewise")
+    A("> unchanged. These results indicate that the framework's statistical guarantees do not rely on a")
+    A("> particular PAS caller.")
     A("")
+
     with open(os.path.join(MC, "report.md"), "w") as f:
         f.write("\n".join(lines))
     print(f"[out] {os.path.join(MC, 'report.md')}")
