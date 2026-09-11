@@ -244,7 +244,212 @@ def evaluate_coverage(
     y_true = np.asarray(y_true, dtype=float)
     if not (lower.shape == upper.shape == y_true.shape):
         raise ValueError("lower, upper, y_true must share a shape")
-    return float(np.mean((y_true >= lower) & (y_true <= upper)))
 
 
-__all__ = ["ConformalCalibrator", "CalibratedInterval", "evaluate_coverage"]
+# ---------------------------------------------------------------------------
+# Mondrian (group-conditional) split conformal.
+# ---------------------------------------------------------------------------
+@dataclass
+class MondrianInterval:
+    """Result of fitting a :class:`MondrianConformalCalibrator`.
+
+    Per-group nonconformity quantiles.  Each listed group has its own
+    finite-sample-corrected split-conformal quantile ``q_g`` computed on
+    that group's calibration points, which yields a *group-conditional
+    marginal* coverage guarantee: for exchangeable test points from group
+    ``g``, ``P(y in interval) >= 1 - alpha``.  Groups smaller than the
+    calibrator's ``min_group_size`` (and groups unseen at fit time) fall
+    back to the pooled quantile ``group_q["pooled"]``, preserving the plain
+    marginal guarantee.
+    """
+
+    alpha: float
+    mode: str
+    group_q: dict
+    group_n: dict
+    std_floor: float
+    n_calibration: int
+
+
+class MondrianConformalCalibrator:
+    """Group-conditional ("Mondrian") split-conformal calibrator.
+
+    Runs one split-conformal calibration per predefined group instead of a
+    single pooled quantile.  This addresses spaGAPA's disclosed limitation
+    that *marginal* coverage conceals subgroup undercoverage (high-
+    expression bins reach only ~0.82 at the 90% target): Mondrian
+    calibration restores the guarantee *within* each group while remaining
+    distribution-free and model-agnostic (Vovk et al. 2005, "Mondrian"
+    architectures; Lei et al. 2018 for the split-conformal quantile).
+
+    Parameters
+    ----------
+    alpha : float, default=0.1
+        Target miscoverage per group.
+    mode : {"global", "locally_adaptive"}, default="locally_adaptive"
+        Within each group, either absolute-error scores (global) or
+        std-standardized scores (locally_adaptive), mirroring
+        :class:`ConformalCalibrator`.
+    min_group_size : int, default=50
+        Groups with fewer calibration points use the pooled quantile
+        (finite-sample correction needs enough points to be meaningful).
+    std_floor : float, optional
+        Same role as in :class:`ConformalCalibrator`.
+
+    Examples
+    --------
+    >>> cal = MondrianConformalCalibrator(alpha=0.1, mode="global")
+    >>> cal.fit(cal_err, None, groups=expr_bins)
+    >>> lower, upper = cal.predict(test_pred, None, test_bins)
+    """
+
+    def __init__(
+        self,
+        alpha: float = 0.1,
+        mode: Literal["global", "locally_adaptive"] = "locally_adaptive",
+        min_group_size: int = 50,
+        std_floor: Optional[float] = None,
+    ):
+        if not (0.0 < alpha < 1.0):
+            raise ValueError(f"alpha must be in (0, 1), got {alpha}")
+        if mode not in ("global", "locally_adaptive"):
+            raise ValueError(
+                f"mode must be 'global' or 'locally_adaptive', got {mode!r}"
+            )
+        self.alpha = float(alpha)
+        self.mode = mode
+        self.min_group_size = int(min_group_size)
+        self.std_floor = std_floor
+        self.interval_: Optional[MondrianInterval] = None
+
+    @staticmethod
+    def _scores(errors: np.ndarray, std: Optional[np.ndarray], mode: str,
+                std_floor: Optional[float]) -> Tuple[np.ndarray, float]:
+        """Nonconformity scores + the std floor actually applied."""
+        if mode == "global":
+            return errors, (float(std_floor) if std_floor else 0.0)
+        s = np.asarray(std, dtype=float)
+        floor = std_floor
+        if floor is None:
+            smax = float(np.max(s)) if s.size else 0.0
+            floor = max(1e-3 * smax, 1e-12) if smax > 0 else 1e-12
+        return errors / np.maximum(s, float(floor)), float(floor)
+
+    @staticmethod
+    def _q_level(n: int, alpha: float) -> float:
+        """Finite-sample-corrected quantile level ceil((n+1)(1-a))/n."""
+        return min(1.0, np.ceil((n + 1) * (1.0 - alpha)) / n)
+
+    def fit(
+        self,
+        calibration_errors: np.ndarray,
+        calibration_gp_std: Optional[np.ndarray],
+        groups: np.ndarray,
+    ) -> MondrianInterval:
+        """Per-group split-conformal quantiles from a held-out set.
+
+        ``groups`` are discrete labels (e.g. expression-quantile bins from
+        :func:`bin_by_quantiles`).  Small groups pool into ``"pooled"``.
+        """
+        errors = np.asarray(calibration_errors, dtype=float).ravel()
+        groups = np.asarray(groups).ravel()
+        if groups.shape != errors.shape:
+            raise ValueError(
+                f"groups must have the same length as calibration_errors "
+                f"({groups.shape[0]} vs {errors.shape[0]})"
+            )
+        if self.mode == "locally_adaptive" and calibration_gp_std is None:
+            raise ValueError("mode='locally_adaptive' requires calibration_gp_std")
+
+        all_scores, floor = self._scores(
+            errors, calibration_gp_std, self.mode, self.std_floor
+        )
+
+        group_q: dict = {}
+        group_n: dict = {}
+        pooled_q = float(np.quantile(
+            all_scores, self._q_level(errors.shape[0], self.alpha),
+            method="higher",
+        ))
+        group_q["pooled"] = pooled_q
+
+        for g in np.unique(groups):
+            m = groups == g
+            n = int(m.sum())
+            group_n[str(g)] = n
+            if n < self.min_group_size:
+                group_q[str(g)] = pooled_q
+                continue
+            group_q[str(g)] = float(np.quantile(
+                all_scores[m], self._q_level(n, self.alpha), method="higher"
+            ))
+
+        self.interval_ = MondrianInterval(
+            alpha=self.alpha,
+            mode=self.mode,
+            group_q=group_q,
+            group_n=group_n,
+            std_floor=floor,
+            n_calibration=int(errors.shape[0]),
+        )
+        return self.interval_
+
+    def predict(
+        self,
+        gp_pred: np.ndarray,
+        gp_std: Optional[np.ndarray],
+        groups: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Per-point ``(lower, upper)`` using each point's group quantile.
+
+        Unseen groups use the pooled fallback quantile.
+        """
+        if self.interval_ is None:
+            raise RuntimeError("Call fit() before predict()")
+        pred = np.asarray(gp_pred, dtype=float).ravel()
+        groups = np.asarray(groups).ravel()
+        if groups.shape != pred.shape:
+            raise ValueError("groups must have the same length as gp_pred")
+
+        q = np.array([
+            self.interval_.group_q.get(
+                str(g), self.interval_.group_q["pooled"]
+            )
+            for g in groups
+        ])
+        if self.mode == "locally_adaptive":
+            if gp_std is None:
+                raise ValueError("mode='locally_adaptive' requires gp_std in predict()")
+            std = np.broadcast_to(
+                np.asarray(gp_std, dtype=float), pred.shape
+            ).astype(float)
+            half = q * np.maximum(std, self.interval_.std_floor)
+        else:
+            half = q
+        return pred - half, pred + half
+
+
+def bin_by_quantiles(values: np.ndarray, n_bins: int = 5) -> np.ndarray:
+    """Map a continuous conditioning variable to ``0..n_bins-1`` labels.
+
+    Equal-frequency bins via empirical quantiles (ties collapse into the
+    lower bin, NaN stays NaN).  Typical use: expression-level bins for
+    Mondrian calibration of spaGAPA's disclosed high-expression-bin
+    undercoverage.
+    """
+    x = np.asarray(values, dtype=float)
+    edges = np.quantile(x[~np.isnan(x)], np.linspace(0, 1, n_bins + 1))
+    edges[0], edges[-1] = -np.inf, np.inf
+    out = np.digitize(x, edges[1:-1], right=True).astype(float)
+    out[np.isnan(x)] = np.nan
+    return out
+
+
+__all__ = [
+    "ConformalCalibrator",
+    "CalibratedInterval",
+    "MondrianConformalCalibrator",
+    "MondrianInterval",
+    "evaluate_coverage",
+    "bin_by_quantiles",
+]
