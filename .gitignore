@@ -152,3 +152,10 @@ apa_quantification_spatial.png
 gp_imputation_example.png
 gp_svapa_patterns.png
 gp_svapa_uncertainty.png
+
+# Competitor papers (publisher-copyrighted; local reference only, keep out of the public repo)
+00_ref_papers/
+
+# SAW snakemake runtime state + NFS stray files
+.snakemake_mengzijun/
+.nfs*

@@ -12,11 +12,12 @@
 
 spaGAPA is a Python toolkit for spatial transcriptomics APA analysis. It addresses a critical gap in the field: **existing spatial APA tools (stAPAminer, spvAPA) lack uncertainty quantification, cannot scale to high-resolution platforms (Stereo-seq), and provide no mechanism for cross-study APA integration.**
 
-spaGAPA solves these problems through three core innovations:
+spaGAPA solves these problems through four core innovations:
 
-1. **Conformal Uncertainty Quantification** — split-conformal prediction intervals with distribution-free marginal coverage, validated across 11 datasets (empirical coverage within 0.2% of nominal) and robust across spatial regions and uncertainty strata
-2. **Sparse Gaussian Process Framework** — O(nm²) probabilistic imputation with heteroscedastic noise estimation; scales to 100k spots (competitors fail at 42k)
+1. **Conformal Uncertainty Quantification** — split-conformal prediction intervals with distribution-free marginal coverage, validated across 11 samples (523k test points; mean |deviation| 0.21 / 0.16 / 0.10 pp at 80/90/95%) and robust across spatial regions and uncertainty strata
+2. **Sparse Gaussian Process Framework** — O(n·m²) probabilistic imputation with heteroscedastic noise estimation; scales to 100k spots (competitors fail at 42k)
 3. **Subcellular Stereo-seq Support** — the only tool validated on subcellular-resolution Stereo-seq APA data (21,455 PAS × 20.7M DNBs)
+4. **Caller-Agnostic Design** — statistical guarantees hold unchanged when the PAS caller is swapped (scAPAtrap → Sierra on 3 datasets, 2 species × 3 tissues; max coverage deviation 0.5 pp)
 
 APA batch correction (quantile normalization + linear removal) is provided as an optional module.
 
@@ -42,7 +43,7 @@ Spatial Validation → Sparse GP Imputation (+ Conformal UQ) → APA Quantificat
 | spatial-KNN | 0.147 | 0.913 | 0.849 | 1s |
 | mean | 0.080 | 0.975 | 0.894 | 0.1s |
 
-GP outperforms stAPAminer and spvAPA on spatial fidelity and runtime (**5.7–7.2× faster**), while the per-gene mean remains a strong RMSE baseline on the bimodal APA index.
+GP outperforms stAPAminer and spvAPA on spatial fidelity (0.42 vs 0.00 for the mean, which recovers no spatial gradient by construction) and runtime (**5.7–7.2× faster**), while the per-gene mean remains a strong RMSE baseline on the bimodal APA index — reported openly (see Limitations).
 
 ### Scalability (Competitors Fail at High Resolution)
 
@@ -50,21 +51,37 @@ GP outperforms stAPAminer and spvAPA on spatial fidelity and runtime (**5.7–7.
 |-------|-------------|-----------|--------|
 | 1k–15k | ✅ COMPLETED | ✅ COMPLETED | ✅ COMPLETED |
 | 42k | ✅ **162s** | ❌ TIMEOUT (1200s) | ❌ FAILED (rc=1) |
-| 100k | ✅ **511s** | ❌ TIMEOUT | ❌ FAILED |
+| 100k | ✅ **511s**, 8.8 GB peak | ❌ TIMEOUT | ❌ FAILED |
+
+Measured power-law slopes (deployed implementations): spaGAPA-fast 0.84, spaGAPA-accuracy 1.01, stAPAminer 1.01, spvAPA 0.49.
 
 ### Conformal Uncertainty (Universal Coverage)
 
-| Target | Mean Coverage | Max Deviation | Samples Within ±5% |
-|--------|--------------|---------------|-------------------|
-| 80% | 0.8005 | 0.4% | 11/11 |
-| 90% | 0.8996 | 0.5% | 11/11 |
-| 95% | 0.9497 | 0.2% | 11/11 |
+11 samples, 523,174 test points, 7 GSE datasets, 4 tissue types, 2 species:
 
-Validated on 11 samples across 7 GSE datasets, 4 tissue types, 2 species, 523k test points.
+| Target | Mean coverage | Mean abs deviation | Max deviation | Samples within ±5% |
+|--------|--------------|--------------------|---------------|-------------------|
+| 80% | 0.8005 | 0.21 pp | 0.4 pp | 11/11 |
+| 90% | 0.8996 | 0.16 pp | 0.5 pp | 11/11 |
+| 95% | 0.9497 | 0.10 pp | 0.2 pp | 11/11 |
+
+Coverage also holds under spatial-block splits and locally adaptive intervals. Uncertainty-guided triage removes 23% of RMSE at 80% retention (paired across 5 datasets, p = 0.004).
+
+### Multi-Caller Robustness (Sierra × spaGAPA)
+
+Same Space Ranger BAMs re-called with Sierra 0.99.27, converted to spaGAPA input, **no re-tuning**:
+
+| Dataset | Species / tissue | Sierra sites (genes) | Coverage 80/90/95 (global) | Gene-level distal-usage r | PAS Jaccard (±50 bp) |
+|---------|-----------------|---------------------|---------------------------|---------------------------|----------------------|
+| GSE183456 | human / kidney | 10,456 (4,258) | 0.801 / 0.900 / 0.950 | 0.51 (n=814) | 0.07 |
+| GSE220442 | human / brain | 8,400 (3,384) | 0.796 / 0.898 / 0.950 | 0.83 (n=510) | 0.18 |
+| GSE169749 | mouse / colon | 4,395 (1,872) | 0.804 / 0.899 / 0.950 | 0.69 (n=443) | 0.05 |
+
+**Max deviation across all datasets × levels × modes (global + locally adaptive): 0.5 pp.** The framework's statistical guarantees do not depend on the PAS caller, the species, or the tissue. Full numbers: `scripts/multicaller_validation/report.md`.
 
 ### Domain Recovery (Unsupervised)
 
-MOB (mouse olfactory bulb): **ARI = 0.60, NMI = 0.68** (unsupervised Leiden, no labels needed — vs spvAPA which requires supervised labels).
+MOB (mouse olfactory bulb): **ARI = 0.60, NMI = 0.68** (unsupervised Leiden, no labels needed — vs spvAPA which requires supervised labels). Fair comparison: identical Leiden pipeline, only the APA source differs (mean-imputed vs GP-imputed).
 
 ---
 
@@ -89,6 +106,12 @@ MOB (mouse olfactory bulb): **ARI = 0.60, NMI = 0.68** (unsupervised Leiden, no 
 |-----|--------|---------|---------|-------------|
 | GSE263789 | AD brain | Mouse | 5 (AD/WT/3mo) | 21,455 PAS × 20.7M DNB |
 
+Processed via SAW 8.2.2 → BAM retag adapter (CB=Cx_Cy, UB padded) → scAPAtrap → bin200 aggregation (15,235 spots, ~10.3% observed). Real spatial APA examples: **Cdk8**, **Apoe** (Alzheimer's APOE), **Gnb1l**.
+
+### MOB (external APA matrix)
+
+ST11 mouse olfactory bulb, 260 spots, 5 annotated layers — a published movAPA-prepared APA/RUD matrix (non-scAPAtrap input), used for domain recovery and cross-caller triangulation.
+
 **3'-bias validation**: Mouse 53.4%, Human 47.0% within 500bp of TES (polyA-capture signature confirmed).
 
 ---
@@ -104,9 +127,8 @@ conda activate spagapa
 pip install numpy scipy scikit-learn pandas matplotlib pysam
 pip install statsmodels
 
-# For conformal calibration (already in the package)
 # For Stereo-seq processing: SAW 8.2.2, samtools, umi_tools, featureCounts
-# For PAS calling: scAPAtrap (R package)
+# For PAS calling: scAPAtrap (R) or Sierra (R); both supported
 ```
 
 ### From source
@@ -123,6 +145,8 @@ pip install -e .
 export OPENBLAS_NUM_THREADS=8     # CRITICAL: 64/32 causes segfault on heavy linalg
 export TMPDIR=/s3/mengzijun/tmp
 ```
+
+See `CLAUDE.md` / `docs/REPRODUCIBILITY_MANIFEST.md` for the per-host (S90/S91/S97/S98) environment table.
 
 ---
 
@@ -278,30 +302,58 @@ spagapa/
 
 ---
 
+## Manuscript Figures (BIB)
+
+All figures are **vector PDF + 300-DPI PNG**, colorblind-friendly Okabe-Ito palette, DejaVu Sans, sized at BIB print width (~178 mm) with no downscaling. Generation scripts are version-controlled; rendered outputs live under `pipeline_output/` (gitignored).
+
+### Main figures 1–7 — `scripts/main_figures/` (index: `figure_index.md`)
+
+| # | Title | Key content |
+|---|-------|-------------|
+| 1 | Framework overview | gaps · input pipeline · sparse GP · split-conformal |
+| 2 | Spatial vs mean benchmark | 5 methods × 2 datasets, honest mean-baseline framing |
+| 3 | Conformal marginal coverage | 11 samples, 523k points, 80/90/95% |
+| 4 | Uncertainty + risk-coverage | 4 noise models, subgroup coverage, −23% RMSE triage |
+| 5 | Domain recovery | MOB layers, fair mean-vs-GP comparison, ARI/NMI |
+| 6 | Scalability | 1k–100k runtime/memory/completion/Pareto |
+| 7 | Stereo-seq pilot | 20.7M DNB, QC, Cdk8/Apoe/Gnb1l maps, binning robustness |
+
+### Supplementary figures S1–S16 — `scripts/supplementary_figures/` (legends: `supp_figure_legends.md`)
+
+Dataset overview, inducing-point & masking sensitivity, mean stratification, benchmark parameter table, full conformal coverage, leakage/LOOCV audit, per-gene uncertainty correlation, spatial-block conformal, domain-recovery details, pseudoreplication, Stereo-seq QC/binning, batch correction, AD-vs-WT effect sizes (descriptive), coverage deviation forest, MAE risk-coverage.
+
+---
+
 ## Reproducibility
 
-### Benchmark Scripts
+### Benchmark & Validation Scripts
 
 | Script | Purpose |
 |--------|---------|
 | `scripts/benchmark_stapaminer_headtohead.py` | 5-method imputation head-to-head (GP/stAPAminer/spvAPA/KNN/mean) |
 | `scripts/benchmark_runtime_scalability.py` | Runtime/memory at 1k–100k spots |
-| `scripts/calibrate_uncertainty.py` | Single-dataset conformal calibration |
+| `scripts/benchmark_mean_transparent_report.py` | Transparent mean-baseline comparison |
 | `scripts/calibrate_uncertainty_all_datasets.py` | Multi-dataset conformal coverage validation |
-| `scripts/analyze_gse220442_diff_apa_unified.py` | Unified-peak differential APA (3v3) |
+| `scripts/conditional_coverage_validation.py` | Subgroup + conditional coverage |
+| `scripts/result12_riskcoverage_blockconformal.py` | Risk-coverage + spatial-block conformal |
+| `scripts/audit_uncertainty_leakage.py` (+ 3 more `audit*.py`) | Uncertainty audits (leakage/LOOCV/per-gene/width) |
+| `scripts/analyze_gse220442_diff_apa_unified.py` | Unified-peak differential APA (3v3, donor-level) |
 | `scripts/mob_domain_recovery.py` | MOB unsupervised domain ARI/NMI |
 | `scripts/run_bias_correction.py` | APA batch correction demo |
-| `scripts/benchmark_imputation_accuracy.py` | GP vs KNN vs mean accuracy |
+| `scripts/multicaller_validation/` | Sierra × spaGAPA caller-robustness chain (one-command `run_dataset.sh`) |
+| `scripts/main_figures/` · `scripts/supplementary_figures/` | All figure generation scripts |
 
-### Processing Logs
+### Processing Logs & Manifests
 - `logs/20260710_数据处理记录.md` – `logs/20260726_数据处理记录.md`
-- `docs/superpowers/specs/` – Design specs (Phase 1, 2, 3)
 - `docs/REPRODUCIBILITY_MANIFEST.md` – Full environment + command manifest
+- `docs/apa_evidence_source_manifest.md` – APA-evidence decision rules per source
+- `docs/real_data_benchmark_protocol.md` – Real-data benchmark track definitions
+- `docs/TABLE1_tool_comparison.md` – Manuscript Table 1
 
 ### Tests
 ```bash
 OPENBLAS_NUM_THREADS=8 python -m pytest tests/ -q
-# 439 tests collected, 1 pre-existing failure (Leiden stochastic label count)
+# 439 tests collected; 1 pre-existing collection error (tests/benchmark/test_performance.py)
 ```
 
 ---
@@ -310,33 +362,37 @@ OPENBLAS_NUM_THREADS=8 python -m pytest tests/ -q
 
 ### What spaGAPA Does That No Competitor Can
 
-| Capability | stAPAminer | spvAPA | **spaGAPA** |
-|-----------|-----------|--------|------------|
-| Imputation method | KNN (heuristic) | WNN (heuristic) | **Sparse GP (probabilistic)** |
-| Uncertainty quantification | ❌ | ❌ | **✅ Conformal (guaranteed coverage)** |
-| Batch correction | ❌ | ❌ | **✅ QN + linear** |
-| Stereo-seq (subcellular) | ❌ (Visium only) | ❌ (Visium only) | **✅ 21k PAS × 20.7M DNB** |
-| Scalability | ❌ OOM @ 42k | ❌ FAIL @ 42k | **✅ 100k spots** |
-| Supervised analysis | ❌ | ✅ (sPLS-DA, needs labels) | ❌ (unsupervised) |
-| Visualization | Basic | Polished | Basic |
+| Capability | stAPAminer | spvAPA | metaAPA | **spaGAPA** |
+|-----------|-----------|--------|---------|------------|
+| Imputation method | KNN (heuristic) | WNN (heuristic) | N/A | **Sparse GP (probabilistic)** |
+| Uncertainty quantification | ❌ | ❌ | caller-level only | **✅ Conformal (guaranteed coverage)** |
+| Caller-agnostic guarantees | ❌ | ❌ | integrates callers | **✅ validated (scAPAtrap + Sierra)** |
+| Batch correction | ❌ | ❌ | ❌ | **✅ QN + linear** |
+| Stereo-seq (subcellular) | ❌ (Visium only) | ❌ (Visium only) | N/A | **✅ 21k PAS × 20.7M DNB** |
+| Scalability | ❌ OOM @ 42k | ❌ FAIL @ 42k | N/A | **✅ 100k spots** |
+| Supervised analysis | ❌ | ✅ (sPLS-DA, needs labels) | ❌ | ❌ (unsupervised) |
+| Validation data | MOB × 3 | 9 datasets (sc + ST) | 4 datasets | **9 GSE × 32 samples + MOB + Stereo-seq** |
 
 ### Contributions to the Field
 
 1. **Statistical rigor**: First spatial APA tool with conformal-calibrated uncertainty (distribution-free coverage guarantee)
-2. **Scalability**: Sparse GP framework extends spatial APA to subcellular-resolution platforms (competitors are fundamentally O(n²))
-3. **Cross-study integration**: APA-specific batch correction (existing tools are expression-only)
-4. **High-resolution validation**: First complete APA pipeline on Stereo-seq subcellular data
-5. **Competitive benchmarking**: Head-to-head comparison on shared data (GP > stAPAminer > spvAPA on accuracy + speed)
+2. **Caller robustness**: Coverage guarantees empirically invariant to the PAS caller (scAPAtrap/Sierra), species, and tissue
+3. **Scalability**: Sparse GP framework extends spatial APA to subcellular-resolution platforms (competitors are fundamentally O(n²))
+4. **Cross-study integration**: APA-specific batch correction (existing tools are expression-only)
+5. **High-resolution validation**: First complete APA pipeline on Stereo-seq subcellular data
+6. **Competitive benchmarking**: Head-to-head comparison on shared data with transparent baseline reporting (GP > stAPAminer > spvAPA on spatial fidelity + speed; mean baseline reported honestly)
 
 ---
 
 ## Limitations (Honest)
 
-1. **GP doesn't beat per-gene mean on entry-wise RMSE** — the gene-level distal-usage index is bimodal; mean predicts the dominant mode. GP's value is in uncertainty + spatial fidelity, not raw RMSE.
-2. **Raw GP uncertainty correlation is modest within genes** (per-gene median r ≈ 0.14; pooled r ≈ 0.55 dominated by cross-gene ranking). Conformal calibration provides distribution-free marginal coverage regardless. Heteroscedastic noise estimation (residual-based, Method D) improves global risk stratification without inflating interval width.
-3. **Stereo-seq raw FASTQ + mask availability is a field-wide bottleneck** — only 1 of 66 GEO Stereo-seq datasets has both deposited.
-4. **sAPA-RegNet perturbation model not validated** — cis-regression go/no-go found the simple stability model unsupported at spot level. The regulatory annotation remains descriptive.
-5. **No supervised analysis** — spaGAPA is unsupervised; spvAPA offers supervised sPLS-DA.
+1. **GP doesn't beat per-gene mean on entry-wise RMSE** — the gene-level distal-usage index is bimodal; mean predicts the dominant mode. GP's value is in spatial fidelity (0.42 vs 0.00), uncertainty, and scalability, not raw RMSE. This pattern holds on every caller input tested.
+2. **Raw GP uncertainty correlation is modest within genes** (per-gene median r ≈ 0.10–0.19; pooled r ≈ 0.5 partly driven by cross-gene heterogeneity). Residual-based heteroscedastic estimation (method D) clears pooled r ≥ 0.3 and enables risk-coverage triage; conformal calibration provides distribution-free marginal coverage regardless.
+3. **Marginal ≠ conditional coverage** — high-expression bins undercover (~0.82); the guarantee is marginal, not per-subgroup (shown explicitly in Fig 4E / Supp Fig S9).
+4. **Stereo-seq raw FASTQ + mask availability is a field-wide bottleneck** — only 1 of 66 GEO Stereo-seq datasets has both deposited (GSE269906 human AD brain: STAR-aligned feasibility only, mask unobtainable).
+5. **sAPA-RegNet perturbation model not validated** — cis-regression go/no-go found the simple stability model unsupported at spot level. The regulatory annotation remains descriptive.
+6. **No supervised analysis** — spaGAPA is unsupervised; spvAPA offers supervised sPLS-DA.
+7. **Batch-correction module still under evaluation** — Harmony comparison pending; listed for completeness.
 
 ---
 

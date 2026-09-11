@@ -2,44 +2,43 @@
 
 **Project name**: spaGAPA
 **Full name**: spatial Gaussian-process and graph-aware APA analyzer
-**Language**: Python
-**Main environment**: conda env `spagapa`
+**Language**: Python (R used only for external callers/competitors)
+**Main environment**: conda env `spagapa` (S91 primary host)
 **Current manuscript target**: Briefings in Bioinformatics (BIB)
-**Last updated**: 2026-07-13
+**Last updated**: 2026-09-09
+**Current status**: submission preparation complete — manuscript figure set (7 main + 16 supplementary, print-width vector PDF with submission-ready legends), Table 1, multi-caller robustness validation (Sierra × spaGAPA, 3 datasets / 2 species / 3 tissues), and honest-narrative review fixes are all in place; remaining work is the submission itself and any post-review response.
 
 ---
 
 ## 1. Executive Summary
 
-spaGAPA is a Python toolkit for alternative polyadenylation (APA) analysis in spatial transcriptomics data. The project was initially designed around spatially aware APA validation and Gaussian process (GP) imputation. It has now evolved into a broader statistical and machine-learning framework for sparse spatial APA signals.
+spaGAPA is a Python toolkit for alternative polyadenylation (APA) analysis in spatial transcriptomics data. The project evolved from a package prototype into a statistical and machine-learning framework for sparse spatial APA signals, and has now passed its publication freeze: the public repository carries the package, the full benchmark/validation suite, and all figure-generation scripts, while the manuscript text itself is maintained outside the repo (its drafting history is preserved in git).
 
-The current BIB-oriented thesis is:
+The BIB-oriented thesis is:
 
 > Spatial APA signals are sparse, spatially structured, uncertain, and highly dependent on tissue context. A strong spatial APA framework should not only call APA sites, but also validate spatial support, recover missing APA usage with calibrated uncertainty, separate value recovery from biological-domain discovery, and provide reproducible benchmarks on real spatial transcriptomics datasets.
 
-spaGAPA addresses this through four connected layers:
+spaGAPA addresses this through five connected layers:
 
-1. Real-data APA input construction from Space Ranger BAM and scAPAtrap-compatible APA/PAS evidence.
-2. Spatial APA validation, quantification, and GP-based imputation with uncertainty.
-3. CPU-friendly BioML graph learning for biological-domain recovery.
-4. Benchmark and visualization infrastructure for simulation, MOB/layer-like data, high-resolution pseudo-bin data, and real datasets.
-
-The project is currently in the phase of converting algorithmic prototypes into manuscript-grade evidence, especially real-data benchmarks and high-resolution validation.
+1. Real-data APA input construction from Space Ranger BAM via scAPAtrap or Sierra (caller-agnostic by design, validated by caller swap).
+2. Spatial APA validation, quantification, and sparse-GP imputation with conformal-calibrated uncertainty.
+3. CPU-friendly BioML graph learning for biological-domain recovery (decoupled from value recovery).
+4. Uncertainty-aware downstream analysis: risk-coverage triage, SVAPA, donor-level differential APA, optional APA batch correction.
+5. Benchmark and visualization infrastructure spanning simulation, MOB/layer data, 9 real GSE datasets, and subcellular Stereo-seq.
 
 ---
 
 ## 2. Scientific Motivation
 
-APA changes the 3' end of transcripts and can alter transcript stability, localization, translation, and regulatory interactions. Existing single-cell and spatial transcriptomics APA tools are useful, but several problems remain under-addressed:
+APA changes the 3' end of transcripts and can alter transcript stability, localization, translation, and regulatory interactions. Existing single-cell and spatial transcriptomics APA tools leave several problems under-addressed:
 
-- APA measurements are sparse and dropout-prone.
+- APA measurements are sparse and dropout-prone; high-resolution platforms make this worse.
 - Spatial transcriptomics adds physical neighborhood structure that should be modeled explicitly.
-- KNN-style imputation often lacks calibrated uncertainty.
-- Biological domain recovery and APA value recovery are related but not identical tasks.
-- High-resolution spatial transcriptomics introduces stronger sparsity and scalability constraints.
-- Published tools often lack comprehensive, reproducible benchmark pipelines.
+- KNN-style imputation lacks calibrated uncertainty; no spatial APA tool offers prediction intervals with coverage guarantees.
+- Biological domain recovery and APA value recovery are related but not identical tasks; forcing one model to win both is fragile.
+- Published tools often lack comprehensive, reproducible benchmark pipelines, and conclusions may be entangled with the choice of PAS caller.
 
-spaGAPA is designed around these gaps.
+spaGAPA is designed around these gaps, and its claims are deliberately scoped to what the benchmarks support.
 
 ---
 
@@ -47,459 +46,281 @@ spaGAPA is designed around these gaps.
 
 ### 3.1 Spatial APA data model and workflow
 
-spaGAPA provides dedicated data structures and workflow utilities for spatial APA analysis:
-
-- APA site representation.
-- APA count/usage matrix handling.
-- Spatial coordinate handling.
-- Result writing.
-- Integration with AnnData-like analysis ecosystems.
-- CLI and pipeline presets.
-
-This makes spaGAPA a package rather than a one-off benchmark script.
+- APA site representation, count/usage matrix handling, spatial coordinates, result writing.
+- CLI and pipeline presets (`auto`, `standard`, `highres_accuracy`, `highres_fast`).
+- Integration with AnnData-like ecosystems; this makes spaGAPA a package rather than a one-off benchmark script.
 
 ### 3.2 Spatial validation before downstream modeling
 
-APA sites are not treated as independent molecular events detached from tissue geometry. spaGAPA includes spatial validation and filtering modules that evaluate:
+APA sites are not treated as independent molecular events detached from tissue geometry. The validation layer evaluates read support, spot support, spatial support, neighbor consistency, and spatial autocorrelation — noisy APA calls would otherwise dominate imputation and SVAPA detection.
 
-- read support
-- spot support
-- spatial support
-- neighbor consistency
-- spatial autocorrelation
+### 3.3 Sparse-GP value recovery with conformal uncertainty (core innovation)
 
-This layer is important because noisy APA calls can otherwise dominate imputation and downstream SVAPA detection.
+- Inducing-point sparse GP: O(n·m²), batch fit across genes with K_nm precomputation.
+- Split-conformal prediction (global + locally adaptive) with finite-sample-corrected quantiles.
+- Validated empirically: 11 samples, 523,174 test points — mean |coverage deviation| 0.21 / 0.16 / 0.10 pp at 80/90/95%; max deviation ≤ 0.5 pp; holds under spatial-block splits.
+- Four uncertainty models (constant, local-gene, spatial-spot, residual-spot) benchmarked on 5 datasets; residual-spot (method D) clears pooled uncertainty–error r ≥ 0.3 without inflating width.
+- Risk-coverage triage: filtering by uncertainty removes 23% of RMSE at 80% retention (paired across 5 datasets, p = 0.004).
 
-### 3.3 GP-based APA value recovery with uncertainty
+### 3.4 Systematic exploration of expression-informed GP (negative result, kept as ablation)
 
-spaGAPA implements Gaussian process-based imputation for APA usage:
-
-- spatial kernels
-- sparse/fast variants
-- batch imputation
-- posterior standard deviation
-- uncertainty-aware downstream analysis
-
-The main advantage of GP over simple KNN is not just lower error in favorable settings. The key statistical advantage is that GP provides uncertainty estimates, which can be used for:
-
-- confidence filtering
-- uncertainty-aware SVAPA ranking
-- interpretation of poorly supported spatial regions
-- calibration analysis
-
-### 3.4 Systematic exploration of expression-informed GP
-
-The project explicitly tested whether expression-informed GP should become the central method. Explored variants include:
-
-- additive expression/spatial GP
-- radial GP
-- product-kernel GP
-- adaptive expression weighting
-- layer-local expression kernel
-
-Benchmark conclusion:
-
-- Expression-aware GP can improve some domain metrics in selected settings.
-- It did not robustly dominate spatial GP or graph/KNN baselines.
-- It sometimes risks worse calibration or runtime.
-
-Strategic decision:
-
-- Expression-informed GP remains an experimental/ablation component.
-- It is not the main BIB method.
-- Biological-domain recovery is handled by a separate BioML graph route.
-
-This is important because it prevents the method from being overclaimed.
+Additive / radial / product-kernel / adaptive / layer-local expression GPs were all benchmarked. They improved some domain metrics in selected settings but did not robustly dominate spatial GP, and risked worse calibration or runtime. Decision: kept as ablation evidence, not the main method. This prevents overclaiming and motivated the decoupled BioML route.
 
 ### 3.5 Decoupled BioML route for biological-domain consistency
 
-The major algorithmic evolution is the BioML route:
+- CPU-only, no GPU, no deep learning dependency.
+- Multi-view graph (spatial coordinates + expression + APA usage) → graph-regularized factorization → Leiden domains.
+- Conceptual split: GP handles APA value recovery and uncertainty; BioML handles biological-domain consistency.
+- MOB validation: unsupervised ARI = 0.60, NMI = 0.68 against 5 annotated layers, with a fair-comparison design (identical Leiden pipeline; only the APA source differs between mean-imputed and GP-imputed).
 
-- CPU-only.
-- No GPU requirement.
-- No deep learning dependency.
-- Multi-view graph construction from:
-  - spatial coordinates
-  - expression matrix
-  - APA usage matrix
-- Graph-regularized factor/domain recovery.
+### 3.6 Caller-agnostic design with multi-caller validation (new)
 
-The conceptual shift is:
+Sierra 0.99.27 was run on the same Space Ranger BAMs of three Visium datasets (GSE183456 human kidney, GSE220442 human AD-brain PFC, GSE169749 mouse colon), converted to spaGAPA input format (usage matrix + shared coordinates, ≥2 sites per gene, min_parent_count = 5) with **no re-tuning**, and pushed through the identical inference:
 
-- GP is responsible for APA value recovery and uncertainty.
-- BioML graph learning is responsible for biological-domain consistency.
+- Conformal coverage stays at nominal on every dataset: 0.801/0.900/0.950 (kidney), 0.796/0.898/0.950 (brain), 0.804/0.899/0.950 (colon); max deviation 0.5 pp across all datasets × levels × modes.
+- Gene-level distal-usage concordance across callers: median per-gene r = 0.51 / 0.83 / 0.69.
+- PAS overlap itself is caller-dependent (Jaccard 0.05–0.18 at ±50 bp; 81–88% of Sierra peaks within 500 bp of a scAPAtrap site), consistent with the independent-caller benchmark literature.
+- The "per-gene mean is a strong RMSE baseline" pattern holds on both caller inputs in every dataset.
+- Companion evidence: the MOB analysis runs on a movAPA-prepared (non-scAPAtrap) APA matrix.
 
-This decoupling is currently the most defensible route toward comprehensive performance across RMSE, layer/domain ARI/NMI, and runtime.
+Full numbers and a Methods-ready paragraph: `scripts/multicaller_validation/report.md`; one-command driver `scripts/multicaller_validation/run_dataset.sh` (hostname-aware).
 
-### 3.6 High-resolution spatial transcriptomics support
+### 3.7 High-resolution / subcellular Stereo-seq support
 
-spaGAPA includes a high-resolution route designed for sparse pseudo-bin or high-resolution spatial data:
+End-to-end chain proven on GSE263789 (mouse AD brain): SRA FASTQ → SAW 8.2.2 count (bcSTAR + spatial annotation) → BAM retag adapter (CB=Cx_Cy, UB padded to length 5, chr-prefix reheader) → scAPAtrap → 21,455 PAS × 20.7M DNB subcellular matrix → bin200 aggregation (15,235 spots, ~10.3% observed) → spaGAPA downstream.
 
-- `highres_accuracy`
-- `highres_fast`
-- `auto` preset dispatch
-- pseudo-bin benchmark suites
-- multiscale and graph-based domain handling
+- 3'-enrichment signature confirmed: 53.4% of reads within 500 bp of TES (73.5% within 2 kb) — polyA-capture, not random fragmentation.
+- Real spatial APA maps recovered for Cdk8, Apoe (Alzheimer's APOE), Gnb1l.
+- Binning robustness quantified (cross-bin Pearson r 50→100/50→200 + Moran's I vs bin size).
+- High-resolution presets: `highres_accuracy` / `highres_fast` with candidate defaults gp_blend=0.1, spatial=0.1, expression=0.7, apa=0.2.
+- Caveat maintained: Visium HD FFPE/probe data are not APA-suitable (GSE311383 blocked on chemistry, kept as expression/domain-only candidate).
 
-The current high-resolution candidate default is:
+### 3.8 APA batch correction (optional module)
 
-- `gp_blend = 0.1`
-- graph weight `spatial = 0.1`
-- graph weight `expression = 0.7`
-- graph weight `apa = 0.2`
-
-The goal is to make spaGAPA useful not only for classic Visium-scale data, but also for emerging platforms such as Stereo-seq and Visium HD where appropriate APA evidence exists.
-
-Important technical caveat:
-
-- Visium HD FFPE/probe-based data are not automatically suitable for primary APA/PAS calling.
-- Stereo-seq and poly(A)-compatible high-resolution data are more promising for true high-resolution APA discovery.
+Quantile normalization + limma-style linear removal with collinearity auto-detection. Evaluated against baselines (QN vs Harmony comparison pending); deliberately labeled optional/under-evaluation rather than a headline claim.
 
 ---
 
 ## 4. Package Architecture
 
-Current main modules:
-
 | Module | Role |
 |--------|------|
 | `spagapa.core` | APA dataset and APA site data structures |
-| `spagapa.io` | BAM, coordinate, matrix, and result I/O |
-| `spagapa.spatial` | spatial graph construction |
+| `spagapa.io` | BAM, coordinate, matrix, and result I/O; scAPAtrap integration |
+| `spagapa.spatial` | KNN / radius / Delaunay spatial graphs |
 | `spagapa.calling` | spatial validation and quality filtering |
-| `spagapa.imputation` | GP, sparse GP, fast GP, expression GP prototypes |
+| `spagapa.imputation` | dense/sparse GP, calibration, expression-GP prototypes |
 | `spagapa.quantification` | RUD, PDUI, WUL, PAI, QC |
-| `spagapa.analysis` | differential APA, domain detection, SVAPA |
-| `spagapa.visualization` | spatial/statistical/QC plots |
-| `spagapa.benchmark` | simulation and real benchmark infrastructure |
+| `spagapa.analysis` | differential APA, domains, SVAPA, bias correction |
+| `spagapa.visualization` | spatial/statistical/QC/benchmark plots |
+| `spagapa.benchmark` | simulation + real benchmark infrastructure |
 | `spagapa.bioml` | CPU-friendly multi-view graph/domain route |
-| `spagapa.pipeline` | end-to-end workflow |
-| `spagapa.cli` | command-line interface |
-| `spagapa.presets` | analysis preset definitions |
+| `spagapa.pipeline` | end-to-end workflow + preset dispatch |
+| `spagapa.cli` / `spagapa.presets` | CLI and preset definitions |
 
-User-facing presets:
+Presets: `auto` (size/sparsity dispatch), `standard` (Visium-scale), `highres_accuracy`, `highres_fast`.
 
-| Preset | Intended use |
-|--------|--------------|
-| `auto` | default; dispatch based on matrix size/sparsity |
-| `standard` | conventional low/moderate-resolution spatial transcriptomics |
-| `highres_accuracy` | high-resolution route prioritizing domain stability and RMSE |
-| `highres_fast` | high-resolution route prioritizing speed |
+Tests: 439 collected (1 pre-existing collection error in `tests/benchmark/test_performance.py`).
 
 ---
 
 ## 5. Competitor and Reference Tools
 
-The main reference packages are:
+- **scAPAtrap / Sierra** — PAS calling front ends. spaGAPA consumes either; the multi-caller validation shows its guarantees are caller-independent. Sierra requires a splice-junction BED (extracted from the BAM by pysam, ≥25 supporting reads) and a chr-consistent GTF.
+- **stAPAminer** — primary spatial APA competitor (KNN-style imputation). Strong domain consistency via expression neighborhoods; no posterior uncertainty, limited calibration, less systematic scalability. spaGAPA does not chase it on every domain metric — GP where GP is strongest, BioML graph for biological consistency.
+- **spvAPA** — imputation + supervised (sPLS-DA) selection; requires labels. Complementary supervised capability spaGAPA deliberately does not provide.
+- **metaAPA** — cross-tool PAS integration workflow; complementary rather than competitive.
+- **movAPA** — source of the MOB published APA/RUD matrix used for domain recovery.
 
-- `scAPAtrap`
-- `stAPAminer`
-- `metaAPA`
-
-### 5.1 scAPAtrap
-
-Role:
-
-- Strong APA/PAS calling front end from BAM.
-- Used by spaGAPA as one major route for real APA evidence generation.
-
-Limitations relative to spaGAPA:
-
-- Not designed as a spatial APA analysis framework.
-- Does not provide spaGAPA's spatial validation, GP uncertainty, BioML domain route, or high-resolution benchmark framework.
-
-### 5.2 stAPAminer
-
-Role:
-
-- Primary spatial APA competitor.
-- Uses expression-neighborhood/KNN-like logic for APA imputation and spatial analysis.
-
-Strength:
-
-- Expression-informed neighborhood structure can produce strong biological-domain consistency.
-- Runtime can be faster than GP-heavy methods.
-
-Limitations:
-
-- No GP posterior uncertainty.
-- KNN imputation has limited calibration.
-- Less explicit separation between APA value recovery and biological-domain discovery.
-- Benchmark and high-resolution scalability are less systematic.
-
-spaGAPA response:
-
-- Do not try to beat stAPAminer-like KNN on every domain metric using GP alone.
-- Use GP where GP is strongest.
-- Use BioML graph route for biological consistency.
-
-### 5.3 metaAPA
-
-Role:
-
-- Workflow-oriented APA/meta-analysis framework.
-
-Relationship to spaGAPA:
-
-- More complementary than directly competitive.
-- spaGAPA focuses on spatial APA validation, imputation, uncertainty, domains, and high-resolution spatial benchmarking.
+Manuscript Table 1 (`docs/TABLE1_tool_comparison.md`) compares stAPAminer / spvAPA / metaAPA / spaGAPA across 10 capability rows, with scope notes distinguishing "not validated" from "out of scope".
 
 ---
 
-## 6. Benchmark Status
+## 6. Validation and Benchmark Status
 
-### 6.1 Simulation and MOB/layer-like benchmarks
+All headline numbers below are the frozen, cross-checked versions used in the figures (see `scripts/main_figures/figure_index.md` for panel-level provenance).
 
-Completed:
+### 6.1 Head-to-head imputation benchmark
 
-- Spatial dropout masks.
-- Random masks.
-- Spatial block masks.
-- Ring/sector masks.
-- Layer-aware masks.
-- Multi-seed benchmark.
-- Runtime and memory tracking.
-- Biological consistency metrics:
-  - ARI
-  - NMI
-- Uncertainty metrics:
-  - interval coverage
-  - uncertainty-error correlation
-  - uncertainty-filtered accuracy
+5 methods (spaGAPA-GP, stAPAminer, spvAPA, spatial-KNN, mean) × 2 real datasets (GSE183456 kidney, GSE220442 brain), identical 20% per-gene masks (seed 42), parameter-fairness table published (Supp Fig S5).
 
-Main conclusion:
+- GP: RMSE 0.122, Pearson 0.942, 19 s (GSE183456) — beats stAPAminer (0.208) and spvAPA (0.272) on accuracy and is 5.7–7.2× faster.
+- Mean: RMSE 0.080 — wins pointwise RMSE openly (bimodal index; mean predicts the dominant mode).
+- Spatial fidelity: GP 0.42 vs mean 0.00 (a per-gene constant recovers no gradient by construction).
+- ΔRMSE stratification: the GP−mean gap does not shrink with spatial signal (Moran's-I quintiles; Supp Fig S4) — the honest framing is "spatial reconstruction + calibrated uncertainty + scalable inference", not raw-RMSE dominance.
 
-- GP is strong for APA value recovery and uncertainty.
-- Biological-domain recovery requires graph/expression-aware structure.
-- Decoupling value recovery and domain recovery is necessary.
+### 6.2 Conformal coverage validation
 
-### 6.2 Expression GP sweeps
+11 samples / 523,174 test points / 7 GSE / 4 tissues / 2 species: mean |deviation| 0.21 / 0.16 / 0.10 pp at 80/90/95%, max ≤ 0.5 pp, all 11 samples within ±5% (Fig 3; full table Supp Fig S6; per-sample deviation forest Supp Fig S15).
 
-Completed:
+### 6.3 Uncertainty audits (reviewer-driven)
 
-- spatial GP
-- additive expression GP
-- product kernel GP
-- adaptive GP
-- layer-local GP
+- **Leakage audit + LOOCV method-selection stability** (Supp Fig S7): calibration-set hygiene verified; method choice stable under leave-one-dataset-out.
+- **Per-gene vs pooled correlation** (Supp Fig S8): within-gene median r ≈ 0.10–0.19; pooled r ≈ 0.5 partly cross-gene — reported transparently.
+- **Conditional/subgroup coverage** (Fig 4E, Supp Fig S9): spatial-block splits stay at nominal; high-expression bins undercover (~0.82) — shown as an honest marginal-vs-conditional limitation.
+- **Coverage–width tradeoff** (audit 4): interval width tracked, not just coverage.
 
-Main conclusion:
+### 6.4 Risk-coverage triage
 
-- Expression GP is not robust enough to be the central method.
-- These experiments are still useful as ablation evidence.
+Uncertainty filtering removes 23% of RMSE at 80% retention, paired across 5 datasets, p = 0.004 (Fig 4F; MAE variant Supp Fig S16).
 
-### 6.3 High-resolution benchmark
+### 6.5 MOB domain recovery (unsupervised)
 
-Completed:
+ARI = 0.60, NMI = 0.68 vs 5 annotated layers. Fair comparison: same Leiden pipeline, only the APA source differs (mean- vs GP-imputed); mean-imputation also recovers substantial structure on MOB — reported honestly. Global-best config (expression_apa) moved to Supp Fig S10; confusion matrix replaces a prior Moran's-I panel whose caption had contradicted its data.
 
-- pseudo-bin generation
-- 2x/4x/8x tests
-- multi-seed smoke suites
-- `highres_accuracy`
-- `highres_fast`
-- BioML decoupled route
+### 6.6 Scalability
 
-Representative result pattern:
+Synthetic grids 1k–100k spots, 1200 s wall cap: spaGAPA-fast completes 100k in 511 s / 8.8 GB peak; stAPAminer and spvAPA time out or fail at 42k. Empirical power-law slopes reported (spaGAPA-fast 0.84, accuracy 1.01, stAPAminer 1.01, spvAPA 0.49) with the explicit note that deployed-implementation slopes can differ from textbook complexity. Spatial-fidelity–runtime Pareto: spatial-KNN highest fidelity (0.91) but non-probabilistic and non-scaling; spaGAPA-GP = moderate fidelity + uncertainty + scalability.
 
-- `highres_fast` substantially improves runtime.
-- `highres_accuracy` preserves better value recovery.
-- BioML graph route improves or stabilizes biological-domain metrics in selected high-resolution settings.
+### 6.7 Stereo-seq pilot (GSE263789)
 
-### 6.4 Real-data benchmark
+See §3.7. Figure 7 shows workflow, native-redraw APA QC, single-definition scale/sparsity (20.7M DNB · 21,455 PAS · 15,235 bin200 spots · ~10.3% observed), real Cdk8/Apoe/Gnb1l maps, and binning robustness. An earlier 41-domain + raw-σ uncertainty panel was removed (bin-grid × inducing-point geometry artifacts; over-segmented domains) — documented rather than hidden. AD-vs-WT effect sizes are descriptive only (n=1 per condition; Supp Fig S14, no p-values).
 
-Completed:
+### 6.8 Multi-caller robustness
 
-- GSE179572/GSM5420751 real Space Ranger + scAPAtrap dataset.
-- GSE183456/GSM6047774 real Space Ranger + scAPAtrap dataset.
-- GSE179572 high-resolution smoke.
-- GSE179572 external validation smoke.
+See §3.6. Answers the anticipated reviewer question "why scAPAtrap / how do you know its results are correct?" empirically.
 
-In progress:
+### 6.9 Statistical-practice fixes (review-driven)
 
-- GSE237183 multi-sample Space Ranger processing.
-- GSE220442 SRA split and Space Ranger route.
-- Additional brain/high-resolution candidates.
+- Pseudoreplication eliminated: differential APA aggregated to donor/sample level (GSE220442 3v3; Supp Fig S11); GSE263789 AD-vs-WT explicitly labeled n=1 descriptive.
+- Mean baseline included transparently in every benchmark where it wins pointwise RMSE.
+- Publication freeze (2026-07-28) unified numbers across README/summary/manuscript; three data discrepancies and stale claims were fixed in that pass.
 
 ---
 
-## 7. Real Dataset Status
+## 7. Real Dataset Inventory
 
-### 7.1 GSE179572 / GSM5420751
+### 7.1 Visium (8 GSE, 32 samples, scAPAtrap-processed, `data/processed/`)
 
-Status:
+| GSE | Tissue | Species | Samples | Notes |
+|-----|--------|---------|---------|-------|
+| GSE237183 | Glioma | Human | 18 | 18/18 PASS (GSM7596588 skipped: fiducial failure, Loupe-only fix; ZH881 covered by 4 other sections) |
+| GSE183456 | Kidney | Human | 1 | fully ready (APA + expression + coords); kidney confirmed 3-way |
+| GSE179572 | Brain metastasis | Human | 1 | first real-data benchmark; weak-label exploration |
+| GSE220442 | AD brain (PFC) | Human | 6 (3+3) | non-standard SRA 4-read structure decoded (read3=R1 barcode, read4=R2 cDNA); donor-level diff-APA |
+| GSE338525 | Liver | Human | 2 | normal |
+| GSE206391 | Skin (psoriasis) | Human | 2 | very low PAS counts (229–276) |
+| GSE169749 | Colon (DSS) | Mouse | 1 | multi-caller validation set |
+| GSE263303 | Brain (Nf1) | Mouse | 1 | |
 
-- Space Ranger completed.
-- BAM barcode/UMI tags verified.
-- scAPAtrap completed.
-- Expression matrix exported.
-- Processed dataset available.
+### 7.2 Stereo-seq (subcellular)
 
-Use:
+| GSE | Tissue | Species | Status |
+|-----|--------|---------|--------|
+| GSE263789 | AD brain | Mouse | end-to-end proven; 5 samples (AD/WT/3mo); outputs in `pipeline_output/gse263789_stereo_pilot/` |
+| GSE269906 | AD brain | Human | feasibility only (STAR BAM 61 GB + 3'-bias check); chip mask not obtainable |
 
-- First real-data benchmark.
-- High-resolution smoke validation.
-- External validation smoke.
-- Marker weak-label exploration.
+### 7.3 MOB (external APA matrix)
 
-Current limitation:
+`data/processed/mob_st11` — ST11 mouse olfactory bulb, 260 spots, 5 layers, published movAPA-prepared APA/RUD matrix; domain-recovery anchor and non-scAPAtrap triangulation.
 
-- No expert pathology ROI label yet.
+### 7.4 Blocked / supportive candidates
 
-### 7.2 GSE183456 / GSM6047774
+- GSE311383 (Visium HD liver): probe/FFPE chemistry not APA-suitable; expression/domain-only candidate.
+- 10x V1_Human_Brain_Section_1, GSE153859: expression-only; excluded from APA claims per `docs/apa_evidence_source_manifest.md` decision rules.
 
-Status:
-
-- Space Ranger completed.
-- scAPAtrap completed.
-- Processed dataset available.
-
-Use:
-
-- Strong candidate for biological-domain benchmark.
-- Potentially better than GSE179572 for domain label construction.
-
-### 7.3 GSE237183
-
-Status:
-
-- FASTQ complete.
-- Dry-runs passed.
-- Space Ranger formal counts submitted.
-- Most completed samples pass; one observed failure is image/fiducial alignment-related.
-
-Use:
-
-- Brain/Visium candidate for multi-real-data benchmark.
-
-### 7.4 GSE220442
-
-Status:
-
-- Non-standard SRA technical read structure decoded.
-- Correct read mapping found.
-- Pilot Space Ranger dry-run completed.
-- Full suite processing started.
-
-Use:
-
-- Important brain dataset candidate.
-- Demonstrates spaGAPA workflow can handle complicated SRA formats.
-
-### 7.5 High-resolution candidate search
-
-Priority:
-
-- Stereo-seq first for true APA raw-read evidence.
-- Visium HD for high-resolution expression/domain validation, with APA chemistry caveat.
+3'-bias validation across the corpus: Mouse 53.4%, Human 47.0% within 500 bp of TES.
 
 ---
 
-## 8. Current Strengths
+## 8. Manuscript and Figure Status
 
-spaGAPA currently has several credible strengths for a BIB-level package/method paper:
+### 8.1 Manuscript
 
-1. Clear biological problem: spatial APA remodeling.
-2. Statistical angle: sparse, uncertain, spatially structured APA usage.
-3. Methodological components:
-   - spatial validation
-   - GP imputation
-   - posterior uncertainty
-   - BioML graph domain route
-4. CPU-only design:
-   - no GPU dependency
-   - no deep learning requirement
-5. Reproducible benchmark framework.
-6. Real-data processing path from Space Ranger BAM to APA matrix.
-7. Active high-resolution strategy.
-8. Honest ablation story: expression-informed GP was tested and not overclaimed.
+- Methods + Results (5,009 words), Abstract + Intro + Discussion (3,267 words), and the integrated full manuscript were drafted in-repo (git: `4fffc68`, `5bc3a5a`, `028b6dc`) with Table 1.
+- The 2026-07-29 public-repo prune (`45588a2`) removed the manuscript drafts (and 20 other redundant docs) to keep the public repo code+figures+manifests; the text is recoverable from git history and maintained outside the repo.
+- Known post-freeze figure-side revisions (honest-narrative rebuild, print-width pass, S14–S16 moves) are reflected in `figure_index.md` and the supplementary legends; the manuscript text should be re-checked against these before submission.
 
----
+### 8.2 Figures (submission-ready)
 
-## 9. Current Weaknesses
+- **Main 1–7** — `scripts/main_figures/fig{1..7}_*.py` + `figure_index.md`. Vector PDF + 300-DPI PNG, Okabe-Ito, DejaVu Sans, ~178 mm print width, bold panel letters, panels show data only (prose in captions).
+- **Supplementary S1–S16** — `scripts/supplementary_figures/supp_fig{01..16}_*.py` + `supp_figure_legends.md` (submission-ready legends, added `ec275a5`).
+- Rebuild history: per-review rebuild with real data only (`c12aa42`), fairness/provenance P0 fixes (`d353fa1`), supplementary print-width unification (`591adcf`).
+- Reproduce: `OPENBLAS_NUM_THREADS=8 TMPDIR=/s3/mengzijun/tmp ~/anaconda3/envs/spagapa/bin/python figN_*.py` (S91; per-host env in CLAUDE.md).
+- All figure source data live under `pipeline_output/` (gitignored, on-disk); data-source map at the end of `figure_index.md`.
 
-The project is not yet manuscript-complete. Remaining weaknesses are:
+### 8.3 Reproducibility artifacts
 
-1. Biological gold-standard labels are still limited.
-2. GP runtime can be slower than KNN baselines.
-3. Domain ARI/NMI is not always superior unless the BioML route is used.
-4. Real-data benchmarks are still being expanded.
-5. High-resolution APA evidence requires careful dataset selection.
-6. Some real datasets have difficult image alignment or SRA read structures.
-7. Documentation still needs to be consolidated around current presets and workflows.
-
-These are solvable, but they must be handled before submission.
+- `docs/REPRODUCIBILITY_MANIFEST.md` — environments, versions, per-dataset commands (2026-07-25).
+- `docs/apa_evidence_source_manifest.md`, `docs/real_data_benchmark_protocol.md` — evidence rules and benchmark tracks.
+- Processing logs `logs/2026*_数据处理记录.md`; runlogs/ for long suites.
 
 ---
 
-## 10. Publication Strategy
+## 9. Current Strengths
 
-### 10.1 BIB positioning
+1. Clear biological problem (spatial APA remodeling) with a statistical angle (sparse, uncertain, spatially structured measurements).
+2. Only spatial APA tool with conformal-calibrated uncertainty — and the guarantee is empirically caller-, species-, and tissue-invariant.
+3. Scalable to 100k spots and to subcellular Stereo-seq; CPU-only, no GPU/deep-learning dependency.
+4. Decoupled GP (values + uncertainty) / BioML graph (domains) architecture, with the negative result (expression-GP) kept as honest ablation.
+5. Broad, real-data-only benchmark corpus: 9 GSE × 32 Visium samples + MOB + Stereo-seq, plus a 3-dataset caller-swap validation.
+6. Review-driven statistical hygiene: pseudoreplication fixed, mean baseline reported transparently, conditional-coverage limits shown, n=1 analyses kept descriptive.
+7. Fully version-controlled figure generation with print-width vector output and submission-ready legends.
 
-The strongest BIB framing is:
+---
 
-- spaGAPA is a reproducible spatial APA analysis framework.
-- It is not only an implementation of one model.
-- It systematically evaluates APA recovery, uncertainty, biological consistency, and scalability.
-- It is CPU-friendly and accessible to ordinary bioinformatics labs.
-- It includes real spatial transcriptomics workflows and high-resolution readiness.
+## 10. Current Weaknesses and Honest Limitations
 
-### 10.2 What not to claim
-
-Avoid claims such as:
-
-- "GP alone fully solves biological domain recovery."
-- "spaGAPA beats every competitor on every metric."
-- "Visium HD automatically supports APA calling."
-- "Weak labels are pathology gold standards."
-
-### 10.3 What to claim if supported by final benchmark
-
-Defensible claims:
-
-- spaGAPA improves or matches APA value recovery in real spatial data.
-- spaGAPA provides calibrated uncertainty unavailable in KNN-only tools.
-- BioML graph route improves biological-domain consistency in sparse/high-resolution settings.
-- High-resolution presets provide an accuracy/speed tradeoff without GPU dependency.
-- The package provides a reproducible benchmark and real-data pipeline for spatial APA analysis.
+1. Per-gene mean wins entry-wise RMSE on the bimodal distal-usage index (holds on both callers); spaGAPA's claim is spatial fidelity, uncertainty, and scalability.
+2. Within-gene uncertainty–error correlation is modest (median r ≈ 0.10–0.19); pooled r ≈ 0.5 is partly cross-gene ranking.
+3. Marginal coverage ≠ conditional coverage: high-expression bins undercut (~0.82).
+4. PAS overlap between callers is low (Jaccard 0.05–0.18) — caller-dependent site catalogs are a field-wide reality; spaGAPA mitigates this at the usage/guarantee level, not by unifying catalogs.
+5. Stereo-seq raw FASTQ + mask availability is a field-wide bottleneck (1/66 GEO datasets); human Stereo-seq (GSE269906) is feasibility-only.
+6. sAPA-RegNet perturbation model unvalidated (descriptive annotation only).
+7. No supervised mode (spvAPA has sPLS-DA); batch-correction module still pending Harmony comparison.
+8. Biological gold-standard labels remain limited (MOB layers are the main annotated anchor; pathology ROI labels never materialized).
 
 ---
 
 ## 11. Roadmap
 
-### Short term
+### Short term (submission)
 
-1. Finish GSE220442 Space Ranger processing.
-2. Decide repair/skip strategy for failed GSE237183 sample.
-3. Run scAPAtrap on additional GSE237183/GSE220442 BAMs.
-4. Build formal processed datasets.
-5. Run multi-real-data benchmark.
-6. Produce benchmark visualizations.
+1. Final manuscript pass: re-check text numbers against the rebuilt figures (esp. conformal deviations 0.21/0.16/0.10 pp, multi-caller section, S14–S16 references).
+2. Assemble submission package: main 1–7 + supp S1–S16 PDFs, legends, Table 1, cover letter.
+3. Decide Zenodo/GitHub release tagging for the code + reproducibility manifest.
 
-### Medium term
+### Medium term (post-submission / revision-ready)
 
-1. Build marker-defined and ROI/domain labels.
-2. Add one high-resolution raw-read dataset, preferably Stereo-seq.
-3. Add robust runtime/memory scaling figure.
-4. Consolidate CLI tutorials.
-5. Prepare manuscript figure panels.
+1. Batch-correction Harmony comparison (closes limitation 7).
+2. Full GSE263789 study (beyond pilot) if compute allows; GSE269906 human upgrade remains mask-blocked.
+3. CLI tutorial consolidation (`docs/user_guide.md`, `docs/tutorial_basic.ipynb` refresh).
+4. Reviewer-response experiments from the BIB trail.
 
-### Submission-ready target
+### Not planned
 
-Minimum evidence for BIB:
-
-- Two or more real spatial APA datasets.
-- One convincing biological-domain validation.
-- One high-resolution or pseudo-high-resolution validation.
-- Clear uncertainty calibration figure.
-- Runtime and scalability figure.
-- Reproducible code/data manifest.
+- Supervised selection module; deep-learning/GPU components; expression-GP promotion (all deliberately out of scope).
 
 ---
 
-## 12. Final Project Direction
+## 12. Publication Strategy
 
-The current best direction is:
+### 12.1 BIB positioning
 
-> Build spaGAPA as a CPU-friendly, uncertainty-aware, benchmark-driven spatial APA framework where GP handles APA recovery and uncertainty, while BioML graph learning handles biological-domain consistency.
+- spaGAPA is a reproducible spatial APA analysis framework, not a single-model implementation.
+- It systematically evaluates APA recovery, uncertainty, biological consistency, and scalability — with transparent baselines and negative results.
+- CPU-friendly and accessible to ordinary bioinformatics labs; real-data workflows from Space Ranger/SAW BAM to APA matrix.
 
-This direction is technically coherent, defensible to reviewers, and aligned with the user's constraint of avoiding deep learning/GPU dependence.
+### 12.2 What not to claim
+
+- "GP alone fully solves biological domain recovery."
+- "spaGAPA beats every competitor on every metric."
+- "Visium HD automatically supports APA calling."
+- "Weak labels are pathology gold standards."
+- "Conformal coverage is conditional/subgroup-wise."
+
+### 12.3 Defensible claims (all benchmark-backed)
+
+- Calibrated uncertainty unavailable in KNN-only tools, with distribution-free marginal coverage validated on 523k real test points and invariant to PAS caller, species, and tissue.
+- GP > stAPAminer/spvAPA on spatial fidelity and runtime (5.7–7.2×), with the mean baseline reported honestly.
+- BioML graph route delivers unsupervised domain recovery (MOB ARI 0.60) without labels.
+- First complete APA pipeline on subcellular Stereo-seq (21,455 PAS × 20.7M DNB).
+- Scales to 100k spots where both competitors fail at 42k under identical limits.
+
+---
+
+## 13. Final Project Direction
+
+> Build spaGAPA as a CPU-friendly, uncertainty-aware, benchmark-driven spatial APA framework where GP handles APA recovery and uncertainty, while BioML graph learning handles biological-domain consistency — with every claim scoped to what real-data benchmarks support.
+
+This direction is technically coherent, defensible to reviewers, aligned with the no-deep-learning/no-GPU constraint, and has now been carried through to a submission-ready state.
