@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NC/NAR 论文叙事逻辑指南 — spaGAPA 投稿参照</title>
+<style>
+  :root{
+    --blue:#0072B2; --orange:#D55E00; --green:#009E73; --yellow:#E69F00;
+    --ink:#1a1a2e; --soft:#f6f8fa; --line:#dde3ea; --purple:#6A5ACD;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:"Helvetica Neue","PingFang SC","Microsoft YaHei",Arial,sans-serif;
+       color:var(--ink); background:#fff; line-height:1.75; font-size:15.5px;}
+  .wrap{max-width:1080px; margin:0 auto; padding:48px 40px 80px;}
+  header{border-bottom:4px solid var(--blue); padding-bottom:24px; margin-bottom:40px;}
+  header h1{font-size:30px; color:var(--blue); letter-spacing:.5px;}
+  header .sub{color:#667; margin-top:8px; font-size:14.5px;}
+  header .meta{margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;}
+  .tag{background:var(--soft); border:1px solid var(--line); border-radius:14px;
+       padding:2px 12px; font-size:12.5px; color:#456;}
+  h2{font-size:22px; color:var(--ink); margin:52px 0 18px; padding-left:14px;
+     border-left:5px solid var(--blue);}
+  h2 .num{color:var(--blue); font-family:Georgia,serif; margin-right:6px;}
+  h3{font-size:17.5px; margin:30px 0 12px; color:#234;}
+  h3::before{content:"▸ "; color:var(--orange);}
+  p{margin:10px 0; text-align:justify;}
+  ul,ol{margin:10px 0 10px 26px;}
+  li{margin:6px 0;}
+  table{width:100%; border-collapse:collapse; margin:16px 0; font-size:13.8px;
+        background:#fff;}
+  th{background:var(--blue); color:#fff; padding:9px 12px; text-align:left;
+     font-weight:600; vertical-align:top;}
+  td{border:1px solid var(--line); padding:8px 12px; vertical-align:top;}
+  tr:nth-child(even) td{background:var(--soft);}
+  blockquote{border-left:4px solid var(--yellow); background:#fffdf5;
+             margin:14px 0; padding:12px 18px; color:#444; font-size:14px;
+             border-radius:0 8px 8px 0;}
+  blockquote .src{display:block; margin-top:6px; color:#998a00; font-size:12.5px;}
+  .beat{background:var(--soft); border:1px solid var(--line); border-radius:12px;
+        padding:20px 24px; margin:20px 0;}
+  .beat h3{margin-top:0;}
+  .beat .en{color:#889; font-size:12.5px; font-weight:400; margin-left:8px;}
+  .badge{display:inline-block; padding:1px 10px; border-radius:10px;
+         font-size:12px; font-weight:600; vertical-align:middle;}
+  .b-ok{background:#e0f2ec; color:var(--green); border:1px solid var(--green);}
+  .b-warn{background:#fdf0e7; color:var(--orange); border:1px solid var(--orange);}
+  .b-bad{background:#fbe9e7; color:#c0392b; border:1px solid #c0392b;}
+  .b-build{background:#eae6fa; color:var(--purple); border:1px solid var(--purple);}
+  .paper{border:1px solid var(--line); border-radius:10px; padding:16px 20px;
+         margin:14px 0; background:#fff;}
+  .paper .pname{font-weight:700; color:var(--blue); font-size:15.5px;}
+  .paper .pven{color:#889; font-size:12.5px; font-weight:400; margin-left:6px;}
+  .paper .story{margin:8px 0 4px; font-style:italic; color:#345;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr;}}
+  .kpi{background:linear-gradient(135deg,#f0f6ff,#f8fbff); border:1px solid #cfe0f5;
+       border-radius:10px; padding:14px 18px;}
+  .kpi b{color:var(--blue);}
+  .pyr{margin:20px auto; width:92%; max-width:640px;}
+  .pyr .lvl{border-radius:10px; margin:0 auto 8px; padding:12px 18px;
+            color:#fff; text-align:center;}
+  .lvl1{width:44%; background:var(--orange);}
+  .lvl2{width:68%; background:var(--blue);}
+  .lvl3{width:92%; background:var(--green);}
+  .lvl small{display:block; font-weight:400; opacity:.92; font-size:12.5px;
+             margin-top:4px;}
+  code{background:var(--soft); border:1px solid var(--line); border-radius:4px;
+       padding:1px 6px; font-size:13px; font-family:Consolas,Menlo,monospace;}
+  .footnote{font-size:12.5px; color:#889; border-top:1px solid var(--line);
+            margin-top:48px; padding-top:16px;}
+  .toc{background:var(--soft); border:1px solid var(--line); border-radius:12px;
+       padding:18px 26px; margin-bottom:10px;}
+  .toc a{color:var(--blue); text-decoration:none;}
+  .toc a:hover{text-decoration:underline;}
+  .toc li{margin:3px 0;}
+  @media print{ body{font-size:11pt;} .wrap{padding:10mm;} .beat,.paper{break-inside:avoid;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>NC / NAR 论文叙事逻辑指南</h1>
+  <div class="sub">基于 16 篇参照论文的通读解剖 · 为 spaGAPA 投稿（Nature Communications / Nucleic Acids Research 标准）编写</div>
+  <div class="meta">
+    <span class="tag">生成日期：2026-09-13</span>
+    <span class="tag">语料：02_ref_papers/（BIB 5 篇 + NAR/GB/GR/NC 11 篇）</span>
+    <span class="tag">配套：figure_spec.md（图表设计）· 参照清单 docx</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <b>目录</b>
+  <ol>
+    <li><a href="#arc">六拍叙事弧：方法论文的通用骨架</a></li>
+    <li><a href="#pyramid">三层验证金字塔</a></li>
+    <li><a href="#ncvsnar">NC 与 NAR 的叙事分野</a></li>
+    <li><a href="#papers">16 篇论文逐篇叙事解构</a></li>
+    <li><a href="#spagapa">spaGAPA 六拍现状诊断与补齐清单</a></li>
+    <li><a href="#craft">可复用的写作手法清单</a></li>
+  </ol>
+</nav>
+
+<!-- ================================================================ -->
+<h2 id="arc"><span class="num">1</span>六拍叙事弧：方法论文的通用骨架</h2>
+
+<p>16 篇参照论文（尤其 SCSES、SCOTCH、Spl-ISO-Seq、Longcell、TUSCO、AF2-isoform 六篇
+顶刊）共享同一条叙事主链。它不是"功能清单"，而是<strong>一场从"领域无法回答的问题"
+到"领域级新能力"的论证</strong>。六拍如下：</p>
+
+<div class="beat">
+  <h3>第 1 拍 · 场域缺口开场 <span class="en">The Field-Level Gap</span></h3>
+  <p><strong>规则：</strong>第一段必须让读者相信"领域 X 因为 Z₁–Z₄ 无法回答问题 Y"。
+  缺口必须<strong>可枚举、点名到具体工具</strong>；笼统的"现有方法不理想"会被审稿人直接打回。</p>
+  <blockquote>单细胞 AS 分析存在四大缺陷：① BRIE2 类方法依赖先验细胞标签；② Psix 类
+  用全局基因表达衡量细胞相似性，无法反映剪接模式异质性；③ junction 读数稀少导致
+  Expedition/SCASL 的 PSI 估计不可靠；④ 多数方法只覆盖 SE/MXE，缺 A3SS/A5SS/RI。
+  <span class="src">— SCSES (Nat Commun 2025) Introduction，缺陷对照表另放补充材料 Supp Data 1</span></blockquote>
+  <ul>
+    <li><strong>TUSCO 版</strong>：领域级缺口是"没有内部金标"——spike-in (SIRV) 无法覆盖
+    样本制备到重建的全偏差链路。</li>
+    <li><strong>Longcell 版</strong>：缺口前置到数据本身——UMI 回收与错误不矫正，下游一切
+    分析不可信（"先修地基再盖楼"式开场）。</li>
+    <li><strong>SCOTCH 版</strong>：平台缺口——R10 流动池带来了新机会，但现有长读单细胞
+    isoform 工具没有跟上（工具与平台的时差）。</li>
+  </ul>
+  <p><strong>常见失败模式：</strong>把缺口写成自己工具的功能列表（"我们没有 X 所以做了 X"）；
+  或只攻击一个稻草人竞品。</p>
+</div>
+
+<div class="beat">
+  <h3>第 2 拍 · 方法登场 + 可靠性先行审计 <span class="en">Method + Reliability Audit First</span></h3>
+  <p><strong>规则：</strong>方法图（Fig 1）之后、任何生物学结论之前，先花一整张图证明
+  <strong>工具本身可信</strong>。这是顶刊与普通刊物最大的分水岭。</p>
+  <ul>
+    <li><strong>AF2-isoform（GB 2025）</strong>：整张 Fig 2 做三段审计——AS 区域 vs 组成区
+    的 MSA 深度（ANOVA）→ pLDDT 与 MSA 深度关系（PCC 0.475/0.529）→ 9 个有实验结构的
+    双 isoform 基因做 AF2 vs PDB 金标（TM-score 配对箱线，p=0.76）。</li>
+    <li><strong>Spl-IsoQuant（NC 2025）</strong>：Fig 3 用 Trans-NanoSim（真实 ONT 错误
+    模型 4.4%）+ 截断模拟做 barcode 精度-召回曲线（precision 91.6–99.9%）。</li>
+    <li><strong>spaGAPA 对应物</strong>：3′ 偏倚 QC（53.4% 读段落在 TES 500 bp 内）+
+    caller 无关验证（scAPAtrap↔Sierra 换用，覆盖保证不变）——<em>已有材料，但尚未放在
+    "审计"的叙事位置</em>。</li>
+  </ul>
+</div>
+
+<div class="beat">
+  <h3>第 3 拍 · 三层验证金字塔 <span class="en">The Validation Pyramid</span></h3>
+  <p><strong>规则：</strong>至少两层、最好三层独立证据来源（详见第 2 节）。每层回答
+  不同质疑：模拟层答"可控条件下对不对"，正交层答"换个测量技术还对不对"，内源层答
+  "真实样本里有没有天然对照"。</p>
+</div>
+
+<div class="beat">
+  <h3>第 4 拍 · 竞技场基准（诚实版）<span class="en">The Honest Arena</span></h3>
+  <p><strong>规则：</strong>点名全部主流基线；<strong>输的地方明说</strong>。诚实不是美德
+  装饰，而是审稿人信任的来源——一旦他们发现你藏了一个劣势，所有优势也会被怀疑。</p>
+  <ul>
+    <li><strong>SCSES</strong>：六个基线（BRIE1/BRIE2/Expedition/Psix/SCASL/rMATS），
+    公开承认部分场景只与 BRIE2 持平；事件重叠差异大到必须两两取交集才公平（Supp Data 2
+    专门处理）。</li>
+    <li><strong>Longcell</strong>：模拟 Spearman 0.76–0.87 全胜，但 Jurkat 交叉验证
+    只有 0.43——照登，同时给出"比第二名 +8.72%"的相对优势表述。</li>
+    <li><strong>TUSCO</strong>：更狠——用基准证明 spike-in 会<strong>高估</strong>所有
+    工具的性能（即领域过去的验证方法本身有偏）。</li>
+  </ul>
+</div>
+
+<div class="beat">
+  <h3>第 5 拍 · 生物学兑现 <span class="en">The Biology Payoff</span></h3>
+  <p><strong>规则：</strong>2–3 个递进应用，标准配方是"能力展示 → 疾病/临床"两连跳。
+  这一拍把"方法论文"抬升为"发现论文"，是 Nature 系的隐形门槛。</p>
+  <ul>
+    <li><strong>SCSES</strong>：iPSC 分化（能力）→ <strong>多发性骨髓瘤耐药亚群</strong>：
+    诊断时即已存在的 BTZ 耐痹 SC2 细胞群 + 三个独立队列生存曲线（Fig 4 是全文最重主图）。</li>
+    <li><strong>Spl-ISO-Seq</strong>：皮层分层发育（能力）→ <strong>自闭症基因富集</strong>
+    （odds ratio + 95% CI，L4 层最强调控）。</li>
+    <li><strong>SpliceImpactR</strong>：GTEx 17,350 样本全景 → <strong>结肠癌 PPI 重构</strong>
+    （ColabFold 预测 + PyMOL 结构验证）。</li>
+    <li><strong>Longcell</strong>：胚胎脑（能力）→ 剪接因子 KO 扰动 + 靶向测序验证
+    （PCBP2→DGUOK 新靶点）。</li>
+    <li><strong>SCOTCH</strong>：PBMC 基准 → <strong>qPCR 湿实验验证 AIF1 新 isoform</strong>。</li>
+  </ul>
+  <p><strong>写法要点：</strong>疾病应用必须有临床钩子（生存曲线 / 耐药 / 预后基因），
+  否则只是"又分析了一个数据集"。</p>
+</div>
+
+<div class="beat">
+  <h3>第 6 拍 · 升维收尾 <span class="en">The Dimension Lift</span></h3>
+  <p><strong>规则：</strong>结论不总结功能，而是给出<strong>领域级指导或新维度主张</strong>。</p>
+  <ul>
+    <li><strong>TUSCO</strong>：给实验设计指导——"要几个重复"（1→2 重复精度 65.2%→87.8%）。</li>
+    <li><strong>SCSES</strong>：主张"剪接定义的亚群是表达聚类看不到的维度"。</li>
+    <li><strong>Longcell</strong>：用 Mapre3 反例强调"无监督异质性量化本身有价值"
+    （高 φ 但与层无关 = 层内单细胞二选一表达）。</li>
+    <li><strong>spaGAPA 候选主张</strong>："带分布无关保证的不确定性，让空间 APA 从
+    定性描述变成可决策的定量科学——且该保证不绑定 caller、物种与平台。"</li>
+  </ul>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="pyramid"><span class="num">2</span>三层验证金字塔</h2>
+
+<div class="pyr">
+  <div class="lvl lvl1">① 模拟真值层<small>参数化模拟器 · 可控深度/质量/稀疏度</small></div>
+  <div class="lvl lvl2">② 正交测量层<small>跨平台 · 跨技术 · 长读对照 · 湿实验</small></div>
+  <div class="lvl lvl3">③ 内源金标层<small>天然对照物 · 无需外部真值</small></div>
+</div>
+
+<table>
+  <tr><th>层级</th><th>手段</th><th>谁用了</th><th>回答的审稿质疑</th></tr>
+  <tr><td><b>模拟层</b></td>
+      <td>Spanki（SCSES，平衡四细胞群+可控质量）；Trans-NanoSim 修改版（Spl-IsoQuant，
+      真实 ONT 错误+截断）；掩蔽注释构造"伪新事件"（TUSCO-novel）</td>
+      <td>SCSES · Spl-IsoQuant · TUSCO · Longcell</td>
+      <td>"可控条件下你的方法对不对？边界在哪？"</td></tr>
+  <tr><td><b>正交层</b></td>
+      <td>配对短读+长读同样本（SCSES：卵巢癌+海马，长读 PSI 作基准）；PacBio vs ONT 交叉
+      （Longcell：Jurkat 0.43）；Illumina 饱和 UMI 白名单（Longcell：MOB 0.70）；
+      qPCR 绝对定量（SCOTCH：AIF1）</td>
+      <td>SCSES · Longcell · SCOTCH</td>
+      <td>"换个测量技术，结论还在吗？"</td></tr>
+  <tr><td><b>内源层</b></td>
+      <td>内源单 isoform 基因集（TUSCO：跨注释一致+剪接不变+广谱表达）；组成型外显子
+      （SCSES：矫正前后 PSI 0.67→0.92）；单基因 UMI 簇（Longcell）</td>
+      <td>TUSCO · SCSES · Longcell</td>
+      <td>"真实样本里有没有不依赖外部真值的自检？"</td></tr>
+</table>
+
+<p><b>spaGAPA 三层装配状态：</b>模拟层 <span class="badge b-build">S19 建设中</span>
+（参数化 simulator 扩展）· 正交层 <span class="badge b-build">S20 建设中</span>
+（PolyA_DB 重叠 + Spl-IsoFind 长读 + 可选自产配对长读）· 内源层
+<span class="badge b-ok">已有</span>（3′ 偏倚 TES 富集 + caller 换用不变性）。</p>
+
+<!-- ================================================================ -->
+<h2 id="ncvsnar"><span class="num">3</span>NC 与 NAR 的叙事分野</h2>
+
+<div class="grid2">
+  <div class="kpi">
+    <b>Nature Communications</b>
+    <ul>
+      <li><b>第一主角是生物学发现</b>——方法服务于发现（SCSES 的耐药亚群、
+          Spl-ISO-Seq 的皮层发育）</li>
+      <li>必备件：疾病/发育应用 + 临床钩子；湿实验验证（qPCR/扰动）显著加分</li>
+      <li><b>自产数据</b>加分明显（SCOTCH 五平台自测基准；Longcell 自测 Jurkat/MOB）</li>
+      <li>统计叙事深：φ-vs-ψ 分解、mean-var 分解、下采样功效分析</li>
+      <li>收尾必升维（新维度主张 / 实验设计指导）</li>
+    </ul>
+  </div>
+  <div class="kpi">
+    <b>Nucleic Acids Research</b>
+    <ul>
+      <li><b>第一主角是工具/资源本身</b>（SpliceImpactR 的 R 包+Shiny；PolyA_DB 的
+          数据库维度；PolyAseqTrap 的通用 3′ 测序 R 包）</li>
+      <li>必备件：全面对标基准 + <b>易用性工程</b>（Bioconductor/Shiny/vignette）</li>
+      <li><b>大资源整合</b>：GTEx 17,350 样本（SpliceImpactR）、PolyA_DB 人/鼠全库</li>
+      <li>公共数据系统性整合即可，不强制自产</li>
+      <li>收尾 = 资源开放 + 版本化 + 社区入口</li>
+    </ul>
+  </div>
+</div>
+
+<table>
+  <tr><th>维度</th><th>NC 风格</th><th>NAR 风格</th><th>spaGAPA 建议</th></tr>
+  <tr><td>标题句式</td><td>动词+发现（"Deciphering…" / "reveals…"）</td>
+      <td>工具名+功能（"SCOTCH maps…" / "X: a tool for…"）</td>
+      <td>按投稿目标二选一定稿</td></tr>
+  <tr><td>Fig 1</td><td>概念+数据混合（SCSES Fig1 三段式）</td>
+      <td>流程图为主（SpliceImpactR 八步管线）</td>
+      <td>现版偏 NAR；可加"三缺口"问题面板向 NC 靠</td></tr>
+  <tr><td>基准呈现</td><td>嵌在应用叙事里</td><td>独立基准章节，指标全表</td>
+      <td>Fig 2/3/6 已是 NAR 式；保持</td></tr>
+  <tr><td>疾病内容</td><td>必须（生存曲线级）</td><td>可选</td>
+      <td>AD-vs-WT n=1 描述性 → 需 Fig8 补强</td></tr>
+</table>
+
+<!-- ================================================================ -->
+<h2 id="papers"><span class="num">4</span>16 篇论文逐篇叙事解构</h2>
+
+<h3>A 组 · 与 spaGAPA 最近缘（空间 / 长读 / APA）</h3>
+
+<div class="paper">
+  <span class="pname">Spl-ISO-Seq / Spl-IsoQuant</span><span class="pven">Nat Commun 2025 · 40883294</span>
+  <p class="story">"把长读测序放到空间平台上，绘制皮层分层与细胞类型特异的剪接/PAS 发育调控图谱。"</p>
+  <ul>
+    <li><b>叙事拍位</b>：平台使能(1) → 软件基准(2-4, Fig2-3) → 发育生物学(5, Fig4-6)
+        → 自闭症基因+重复元件(5 拍加强) → AS-APA 协同(韦恩图 324 基因, Fisher p=1.49e-16)</li>
+    <li><b>关键手法</b>：ΔΨ/ΔΠ 双轨统计；下采样箱线图（100 次重采样）回应功效质疑；
+        ScisorWiz 基因案例图；层显著性百分比分层对比（皮层 24.67% vs 白质 3.70%，
+        >6× 对比句式）</li>
+    <li><b>spaGAPA 直接可抄</b>：ΔPDUI 火山图（ΔΠ 空间版）、空间三件套
+        （UMI 全景→细胞类型着色→基因案例）、下采样稳健性箱线</li>
+  </ul>
+</div>
+
+<div class="paper">
+  <span class="pname">Longcell</span><span class="pven">Nat Commun 2025 · 40683866</span>
+  <p class="story">"长读单细胞/空间数据的统计地基：UMI 矫正 + Beta-Binomial 把剪接异质性
+  分解为胞内(φ)与胞间(ψ)。"</p>
+  <ul>
+    <li><b>叙事拍位</b>：前置瓶颈开场(1) → 预处理矫正(2, PSI 0.67→0.92 对照图) →
+        三重验证(3-4) → CRCLM/胚胎脑/MOB 空间应用(5) → 剪接因子靶点+扰动(5 加强)</li>
+    <li><b>关键手法</b>：φ-vs-ψ 全景散度图（招牌图）；mean-change vs var-change 分解
+        优于纯火山；Mapre3 反例收尾（无监督价值主张）</li>
+    <li><b>spaGAPA 直接可抄</b>：异质性散点（Fig4G 已入 spec）、矫正前后对照面板、
+        空间 isoform 三联（ψ 着色+点大小=覆盖+灰点=低置信）</li>
+  </ul>
+</div>
+
+<div class="paper">
+  <span class="pname">SCSES</span><span class="pven">Nat Commun 2025 · 41145486</span>
+  <p class="story">"网络扩散插补恢复单细胞剪接信号，揭示表达聚类看不到的耐药亚群。"</p>
+  <ul>
+    <li><b>叙事拍位</b>：四缺陷枚举开场(1) → 框架(2, Fig1 三段式) → 六基线基准(3-4,
+        Fig2 raincloud) → 分化/胚胎发育(5a) → <b>骨髓瘤耐药+生存曲线</b>(5b, Fig4 全文最重)
+        → 剪接维度主张(6)</li>
+    <li><b>关键手法</b>：金标三层全用（bulk 真值+Spanki 模拟+配对长读）；raincloud 图；
+        事件两两交集的公平性处理；RNA velocity 用矫正后 IR junction 反转方向（方法交叉增值）</li>
+    <li><b>spaGAPA 直接可抄</b>：正交验证散点（S20 已入 spec）、图注统计规范
+        （N/检验/误差全声明）、缺陷枚举表放补充材料</li>
+  </ul>
+</div>
+
+<div class="paper">
+  <span class="pname">SCOTCH</span><span class="pven">Nat Commun 2026 · 42098110</span>
+  <p class="story">"长读单细胞 isoform 定量工具，自产五平台基准数据集并用 qPCR 验证新发现。"</p>
+  <ul>
+    <li><b>叙事拍位</b>：平台时差缺口(1) → 自产基准数据集(2, 五种测序组合) → 工具对标
+        (3-4) → <b>qPCR 湿验证 AIF1</b>(5) → 公共类器官应用(5b)</li>
+    <li><b>湿验证两段式</b>：存在性（匀浆 cDNA 终点 PCR+凝胶 588bp）→ 定量（FACS 分选
+        五细胞群 + isoform 特异引物 + Qubit 拷贝数标准曲线 + 绝对定量 qPCR → usage 对表）</li>
+    <li><b>spaGAPA 移植（无 LCM 约束下）</b>：配对"空间+匀浆长读"自测数据（同块组织
+        两半）+ PAS 特异引物 qPCR 存在性验证</li>
+  </ul>
+</div>
+
+<h3>B 组 · 基准文化与资源型</h3>
+
+<div class="paper">
+  <span class="pname">TUSCO</span><span class="pven">Nat Commun 2026 · 42026080</span>
+  <p class="story">"用内源单 isoform 基因集给转录组重建建立内部金标——基准本身就是贡献。"</p>
+  <ul>
+    <li><b>叙事拍位（基准文化四连）</b>：定义指标(TP/PTP/FN/FP) → 与现有基准对比证明
+        自身更严格(SIRV 高估性能) → 压力测试(TUSCO-novel 掩蔽注释) → 实验设计指导(重复数)</li>
+    <li><b>关键手法</b>：六指标 dumbbell 图（多指标×多工具×多条件）；"基准证伪基准"的
+        元层级叙事；1→5 重复性能条形（kidney FDR −21.9 pp 标注法）</li>
+    <li><b>spaGAPA 移植</b>：S19D 掩蔽"伪新 PAS"恢复率；Fig6E dumbbell；
+        "caller 换用=对基准本身的检验"可作元叙事</li>
+  </ul>
+</div>
+
+<div class="paper">
+  <span class="pname">AF2-isoform 结构影响</span><span class="pven">Genome Biol 2025 · 40963109</span>
+  <p class="story">"对 11,000+ 人类 isoform 做结构预测，系统量化剪接的蛋白结构后果。"</p>
+  <ul>
+    <li><b>叙事拍位</b>：问题(1) → <b>整图可靠性审计</b>(2, Fig2: MSA→pLDDT→PDB 金标) →
+        全景统计(3) → 离群驱动发现+案例深挖(4-5) → 细胞类型定位+功能(6)</li>
+    <li><b>关键手法</b>："先证工具可靠再下结论"；离群圈注+精选案例（双结构叠合+接触图）；
+        每残基效应气泡热图（行=事件类型×列=指标）</li>
+    <li><b>spaGAPA 移植</b>：审计前置（QC+caller 无关性提到 Fig2 前）；事件类型×指标
+        气泡热图可做 APA 版</li>
+  </ul>
+</div>
+
+<div class="paper">
+  <span class="pname">SpliceImpactR</span><span class="pven">NAR 2026 · 42605803（清单钦点可视化参照）</span>
+  <p class="story">"统一 11 类 RNA 加工事件到基因级蛋白后果预测的 R 包 + GTEx 全景。"</p>
+  <ul>
+    <li><b>叙事拍位</b>：整合缺口(1, "无现有管线整合全部事件") → 八步管线(2) →
+        GTEx 17,350 样本全景(3-4) → 移码救援缓冲机制发现(5a) → 结肠癌 PPI(5b)</li>
+    <li><b>视觉语言（NAR 式）</b>：事件类型为中心的分布面板（每事件一行小图阵）；
+        alignment-score 分布；Dice-Sorensen 共调控矩阵；pheatmap UPGMA 纪律</li>
+    <li><b>spaGAPA 移植</b>：图形摘要（NAR 工具文标配）；事件类型分面语法</li>
+  </ul>
+</div>
+
+<div class="paper">
+  <span class="pname">其余九篇速览</span>
+  <ul>
+    <li><b>PolyA_DB v4</b>（NAR 2026）：人/鼠 PAS 数据库，3′端+长读双源——我们的
+        S20-2a 金标来源</li>
+    <li><b>PolyAseqTrap</b>（GB 2026）：通用 3′ 测序 PAS 定量 R 包——多 caller 生态位</li>
+    <li><b>IFDlong</b>（GB 2026）：模型法 isoform+融合检测——"model-based"叙事位</li>
+    <li><b>ScIsoX</b>（GB 2025）：isoform 复杂度二维象限图（简洁典范）</li>
+    <li><b>SCSES/Biosurfer</b>：三层（事件-转录本-功能）差异追踪；Venn+饼图嵌套</li>
+    <li><b>STIFT</b>（BIB 2025）：时空整合；<b>ARI/NMI/iLISI/ASW 双组指标条形</b>模板；
+        基线 OOM 即可扩展性证据</li>
+    <li><b>SpaTM</b>（BIB 2025）：空间主题模型；<b>Moran's I 插补评估</b>+遮蔽 CV 基准</li>
+    <li><b>APAdeg</b>（BIB 2026）：GLMM；模型假设违反动机图（均值-方差散点+QQ 图）</li>
+    <li><b>单细胞长读综述</b>（BIB 2025）：工具定位表（Table 2/4）设计参照</li>
+  </ul>
+</div>
+
+<!-- ================================================================ -->
+<h2 id="spagapa"><span class="num">5</span>spaGAPA 六拍现状诊断与补齐清单</h2>
+
+<table>
+  <tr><th>拍位</th><th>现状</th><th>评级</th><th>补齐动作（对应 figure_spec.md）</th></tr>
+  <tr><td><b>1 场域缺口</b></td>
+      <td>三缺口叙事已在 Fig1A（稀疏/无校准/竞品 42k 失败）；具体到数字</td>
+      <td><span class="badge b-ok">强</span></td>
+      <td>保持；缺口表可扩入补充材料（SCSES 式）</td></tr>
+  <tr><td><b>2 可靠性审计</b></td>
+      <td>3′ 偏倚 QC + caller 无关验证都有，但散在 Fig7/正文后部</td>
+      <td><span class="badge b-warn">位置不对</span></td>
+      <td>叙事重排：审计段前置到方法介绍后（写作层面，零新实验）</td></tr>
+  <tr><td><b>3 三层验证</b></td>
+      <td>内源层已有；模拟层与正交层缺失</td>
+      <td><span class="badge b-build">建设中</span></td>
+      <td>S19 参数化模拟 + S20 长读正交（PolyA_DB + Spl-IsoFind 公共 +
+          可选自产配对长读）→ 三层凑齐</td></tr>
+  <tr><td><b>4 诚实基准</b></td>
+      <td>mean 赢 RMSE 公开、部署斜率、边际≠条件显式——16 篇中最好</td>
+      <td><span class="badge b-ok">强</span></td>
+      <td>保持；加 TUSCO 式"基准证伪"一句（caller 换用检验的是验证体系本身）</td></tr>
+  <tr><td><b>5 生物学兑现</b></td>
+      <td>最弱一拍：AD-vs-WT 是 n=1 描述性；无疾病级钩子</td>
+      <td><span class="badge b-bad">最弱</span></td>
+      <td>Fig8（MOB 层程序 + 器官域程序 + ΔPDUI 火山）；自产配对长读升格正交证据；
+          若走 NC 需再加疾病钩子讨论（AD 数据已有但 n=1）</td></tr>
+  <tr><td><b>6 升维收尾</b></td>
+      <td>缺一句领域级主张</td>
+      <td><span class="badge b-bad">缺</span></td>
+      <td>Discussion 收尾句已起草（见第 1 节第 6 拍）；配合"16 样本覆盖不变性"
+          数据支撑</td></tr>
+</table>
+
+<h3>自测数据路线（无 LCM 约束下的湿实验方案）</h3>
+<ol>
+  <li><b>配对"空间 + 匀浆长读"</b>（主推，纯测序）：同块组织两半——一半 Visium/Stereo
+      文库，一半匀浆 ONT cDNA（外包测序 ~¥6k）→ 基因级 PAS usage 对表（SCSES Fig2d 式），
+      消除组织异质性混杂，比公共跨样本数据更强</li>
+  <li><b>PAS 特异引物 qPCR</b>（点睛，SCOTCH 第一段复刻）：匀浆 cDNA + 近/远端 PAS 特异
+      引物 → 终点 PCR 凝胶（存在性）或 qPCR（AD vs WT 条件间 shift）；只需基础 PCR 平台</li>
+  <li><b>FACS 替代 LCM</b>（可选）：若能获得解离组织分选群 → 细胞群 APA 谱 vs 域推断
+      程序对表；空间特异性由计算端承担</li>
+</ol>
+
+<!-- ================================================================ -->
+<h2 id="craft"><span class="num">6</span>可复用的写作手法清单</h2>
+
+<h3>开场与缺口</h3>
+<ul>
+  <li><b>缺陷枚举到四条</b>，每条点名具体工具与具体失效机制（SCSES 式）；对照表放补充材料</li>
+  <li><b>倍数对比句式</b>："皮层 24.67% vs 白质 3.70%（>6×）"——一个数字讲完一个论点</li>
+  <li><b>前置瓶颈开场</b>（Longcell 式）：当地基有问题时，先讲地基再讲楼</li>
+</ul>
+
+<h3>验证与基准</h3>
+<ul>
+  <li><b>公平性显式处理</b>：事件集不同就取两两交集（SCSES Supp Data 2）——审稿人最恨
+      不公平比较，主动处理=信任</li>
+  <li><b>输了照登 + 相对优势表述</b>：Longcell "0.43，比第二名 +8.72%"</li>
+  <li><b>元层级叙事</b>（TUSCO 式）："现有验证方法本身有偏"——你的基准检验基准</li>
+  <li><b>下采样 100 次重采样箱线</b>：一次性回应所有功效质疑</li>
+</ul>
+
+<h3>生物学与应用</h3>
+<ul>
+  <li><b>能力→疾病两连跳</b>；疾病钩子用生存曲线/耐药/预后基因，别只做"又一个数据集"</li>
+  <li><b>反例收尾</b>（Longcell Mapre3）：展示方法能发现"不符合预期但有价值"的东西</li>
+  <li><b>协同性韦恩图</b>：ΔΨ∩ΔΠ=324 基因 Fisher p=1.49e-16——两个调控层一次讲完</li>
+  <li><b>湿验证两段式</b>：存在性（凝胶）→ 定量（绝对定量标准曲线 + usage 对表）</li>
+</ul>
+
+<h3>图注与统计纪律（SCSES 模板）</h3>
+<ul>
+  <li>每个分布面板：N + 双侧检验类型 + 是否校正 + 误差定义（SD/SEM/95%CI）+ 箱线定义
+      （median/Q25/Q75/1.5×IQR）</li>
+  <li>每面板 Source Data CSV（Nature 硬要求）</li>
+  <li>颜色 Okabe-Ito；Arial；183 mm 双栏宽</li>
+</ul>
+
+<div class="footnote">
+  依据：16 篇 PDF 全文通读（4 篇逐图全解剖 + SCSES/SpliceImpactR/Spl-IsoFind 亲读 +
+  分组调研）；PMID/DOI 清单见 <code>02_ref_papers/spaGAPA投稿参照文献清单.docx</code>。
+  配套设计文档：<code>scripts/main_figures/figure_spec.md</code>（图表层）。
+  本文档为 spaGAPA 团队内部写作参照，生成于 2026-09-13。
+</div>
+
+</div>
+</body>
+</html>
