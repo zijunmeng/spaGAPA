@@ -244,6 +244,10 @@ def evaluate_coverage(
     y_true = np.asarray(y_true, dtype=float)
     if not (lower.shape == upper.shape == y_true.shape):
         raise ValueError("lower, upper, y_true must share a shape")
+    inside = (lower <= y_true) & (y_true <= upper)
+    if inside.size == 0:
+        return float("nan")
+    return float(np.mean(inside))
 
 
 # ---------------------------------------------------------------------------
