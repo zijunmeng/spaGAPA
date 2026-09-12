@@ -148,6 +148,16 @@ export TMPDIR=/s3/mengzijun/tmp
 
 See `CLAUDE.md` / `docs/REPRODUCIBILITY_MANIFEST.md` for the per-host (S90/S91/S97/S98) environment table.
 
+## Documentation
+
+Full usage manual (installation → data preparation → CLI/API → presets →
+uncertainty → Stereo-seq guide → troubleshooting) builds with Sphinx and is
+hosted-ready for Read the Docs (`.readthedocs.yaml`):
+
+```bash
+cd docs && make html   # or connect the repo on readthedocs.org
+```
+
 ---
 
 ## Quick Start

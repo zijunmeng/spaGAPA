@@ -59,12 +59,19 @@ def main():
     t_stream = time.time()
     agg = {}
     n_rows = n_kept = 0
+    usecols = ["peak_id", "spot_id", "count"]
+    dtypes = {"peak_id": "category", "spot_id": "string", "count": np.int32}
+    peek = pd.read_csv(counts_gz, nrows=2)
+    if "site" in peek.columns:
+        usecols = ["site", "spot", "count"]
+        dtypes = {"site": "category", "spot": "string", "count": np.int32}
     reader = pd.read_csv(
-        counts_gz, usecols=["peak_id", "spot_id", "count"],
-        dtype={"peak_id": "category", "spot_id": "string", "count": np.int32},
+        counts_gz, usecols=usecols, dtype=dtypes,
         chunksize=2_000_000, engine="c",
     )
     for chunk in reader:
+        if "site" in chunk.columns:
+            chunk = chunk.rename(columns={"site": "peak_id", "spot": "spot_id"})
         n_rows += len(chunk)
         peak_str = chunk["peak_id"].astype(str)
         keep = peak_str.isin(valid_peaks)
