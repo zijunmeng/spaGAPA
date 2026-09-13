@@ -51,15 +51,20 @@ run_slice(){
   fi
 
   # ---- 2. SAW count ----
-  if [ ! -d "$sawdir" ]; then
-    log "$key [2/6] SAW"
+  sawdir=$d/${gsm}_saw
+  if [ ! -d "$sawdir" ] || ! find "$sawdir" -name "*.target.bam" 2>/dev/null | grep -q .; then
+    rm -rf "$sawdir"; log "$key [2/6] SAW"
     "$SAW" count --id="${gsm}_saw" --sn=SS200000769BR --omics=transcriptomics \
       --kit-version="Stereo-seq T FF V1.3" --sequencing-type="PE75_50+100" \
       --chip-mask="$mask" --organism=mouse --tissue=brain \
       --fastqs="$d/fastq_saw" --reference="$REF" --output="$d" \
-      --threads-num=32 --memory=200 >> "$d/saw.log" 2>&1 \
-      && log "$key SAW OK" || { log "$key SAW FAIL"; return 1; }
+      --threads-num=32 --memory=200 >> "$d/saw.log" 2>&1
     sawdir=$d/${gsm}_saw
+    # 可视化步骤对旧 SN 格式的装饰性失败已知——以 target.bam 产出为成功判据
+    if ! find "$sawdir" -name "*.target.bam" 2>/dev/null | grep -q .; then
+      log "$key SAW FAIL (no target bam)"; return 1
+    fi
+    log "$key SAW OK (bam-based)"
   fi
   [ -d "$sawdir" ] || sawdir=$d/${gsm}_saw
   local sawbam
@@ -83,7 +88,6 @@ run_slice(){
   # ---- 4. scAPAtrap（本地排序/去重 + TenX + 流式导出，全套跳过守卫）----
   if [ ! -s "$raw/peaks_meta.csv.gz" ]; then
     log "$key [4/6] scAPAtrap"
-    mkdir -p "$raw"
     cat > "$retag/run_scapatrap.R" << REOF
 .libPaths(c("/s1/SHARE/01_software/R_442_SeuratV5/library", .libPaths()))
 suppressPackageStartupMessages(library(scAPAtrap))
