@@ -194,10 +194,16 @@ rda <- scAPAtrap(tools=tools, trap.params=trap.params, inputBam=input_bam,
 load(rda)
 write.csv(scAPAtrapData\$peaks.meta, gzfile(file.path(output_dir,"peaks_meta.csv.gz")), quote=FALSE)
 counts <- as(scAPAtrapData\$peaks.count, "TsparseMatrix")
-df <- data.frame(site=rownames(counts)[row(counts)], spot=colnames(counts)[col(counts)], count=as.vector(counts))
-df <- df[df\$count > 0, ]
+nn <- length(counts@x)
 gz <- gzfile(file.path(output_dir,"apa_site_counts.csv.gz"), "w")
-write.csv(df, gz, quote=FALSE, row.names=FALSE); close(gz)
+writeLines("peak_id,spot_id,count", gz)
+rn <- rownames(counts); cn <- colnames(counts)
+stp <- 5e6
+for (i in seq(1, nn, by = stp)) {
+  j <- min(i + stp - 1, nn)
+  writeLines(paste0(rn[counts@i + 1], ",", cn[counts@j + 1], ",", counts@x[i:j]), gz)
+}
+close(gz)
 qc <- list(n_sites=nrow(scAPAtrapData\$peaks.meta), n_barcodes=ncol(scAPAtrapData\$peaks.count))
 writeLines(jsonlite::toJSON(qc, auto_unbox=TRUE, pretty=TRUE), file.path(output_dir,"scapatrap_qc.json"))
 message("scAPAtrap $gsm export complete!")
