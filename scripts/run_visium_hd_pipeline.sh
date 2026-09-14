@@ -18,7 +18,7 @@ usage() { echo "用法: $0 <raw_dir> <study> <sample_glob> <species:human|mouse>
 [ $# -eq 4 ] || usage
 RAW=$1; STUDY=$2; GLOB=$3; SPECIES=$4
 
-ref_for() { case $1 in human) echo $REF_HUMAN ;; mouse) echo $REF_HUMAN ;; *) echo "?" ;; esac; }
+REF=/s1/SHARE/00_ref_genecode/refdata-gex-GRCh38_and_GRCm39-2024-A
 # 注：合并 reference 内含两物种；spaceranger 会按 FASTQ 自动适配？
 # 否——spaceranger 需单物种 ref。若合并包结构为顶层双物种目录则需 mkref 拆分，
 # 首次运行前先检查 $REF_HUMAN 结构（脚本 phase 0 会验证）。
