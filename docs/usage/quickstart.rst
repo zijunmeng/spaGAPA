@@ -21,19 +21,16 @@ Python API
 .. code-block:: python
 
     from spagapa import SpaGAPA
-    from spagapa.core import APADataset
 
-    dataset = APADataset.from_csv(
+    pipeline = SpaGAPA(analysis_preset="auto")   # or highres_fast / standard
+    result = pipeline.run(
         apa_matrix="data/processed/gse183456_scapatrap/apa_matrix.csv",
         coordinates="data/processed/gse183456_scapatrap/coordinates.csv",
     )
 
-    pipeline = SpaGAPA(analysis_preset="auto")   # or highres_fast / standard
-    result = pipeline.fit_transform(dataset)
-
-    print(result.n_domains)        # Leiden domains
-    print(result.recovered.shape)  # imputed APA matrix
-    print(result.uncertainty.shape)# posterior std per entry
+    print(result["domains"]["n_domains"])      # Leiden domains
+    print(result["imputed_values"].shape)      # imputed APA matrix
+    print(result["uncertainty"].shape)         # posterior std per entry
 
     pipeline.save_results("out_run/")
 

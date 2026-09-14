@@ -57,68 +57,99 @@ def main():
 
     print(f"[2/4] streaming counts -> (peak,bin) aggregation, bin={bin_} ...", flush=True)
     t_stream = time.time()
-    agg = {}
+    peak_to_row = {p: i for i, p in enumerate(peaks["peakID"])}
+    rows_acc, cols_acc, vals_acc = [], [], []
     n_rows = n_kept = 0
     usecols = ["peak_id", "spot_id", "count"]
-    dtypes = {"peak_id": "category", "spot_id": "string", "count": np.int32}
     peek = pd.read_csv(counts_gz, nrows=2)
     if "site" in peek.columns:
         usecols = ["site", "spot", "count"]
-        dtypes = {"site": "category", "spot": "string", "count": np.int32}
-    reader = pd.read_csv(
-        counts_gz, usecols=usecols, dtype=dtypes,
-        chunksize=2_000_000, engine="c",
-    )
+    reader = pd.read_csv(counts_gz, usecols=usecols,
+                         dtype={"peak_id": str, "spot_id": str, "count": np.int64,
+                                "site": str, "spot": str},
+                         chunksize=5_000_000, engine="c")
     for chunk in reader:
         if "site" in chunk.columns:
             chunk = chunk.rename(columns={"site": "peak_id", "spot": "spot_id"})
         n_rows += len(chunk)
-        peak_str = chunk["peak_id"].astype(str)
-        keep = peak_str.isin(valid_peaks)
+        rc = chunk["peak_id"].map(peak_to_row)
+        keep = rc.notna()
         if not keep.any():
             continue
         n_kept += int(keep.sum())
         sub = chunk.loc[keep]
-        split = sub["spot_id"].astype(str).str.split("_", expand=True)
+        r = rc.loc[keep].astype(np.int32).to_numpy()
+        split = sub["spot_id"].str.split("_", expand=True)
         bx = (pd.to_numeric(split[0], errors="coerce") // bin_).to_numpy()
         by = (pd.to_numeric(split[1], errors="coerce") // bin_).to_numpy()
-        cnts = sub["count"].astype(np.int64).to_numpy()
-        pks = peak_str.loc[keep].to_numpy()
-        for pk, b1, b2, cnt in zip(pks, bx, by, cnts):
-            key = (pk, f"{int(b1)}_{int(b2)}")
-            agg[key] = agg.get(key, 0) + int(cnt)
-        if n_rows % 10_000_000 < 2_000_000:
-            print(f"      {n_rows:,} rows, {n_kept:,} kept, {len(agg):,} keys "
+        ok = np.isfinite(bx) & np.isfinite(by)
+        rows_acc.append(r[ok])
+        cols_acc.append(by[ok].astype(np.int64) * 1_000_000 + bx[ok].astype(np.int64))
+        vals_acc.append(sub["count"].to_numpy()[ok])
+        if n_rows % 50_000_000 < 5_000_000:
+            print(f"      {n_rows:,} rows, {n_kept:,} kept "
                   f"in {time.time()-t_stream:.0f}s", flush=True)
-    print(f"      {n_rows:,} rows -> {len(agg):,} (peak,bin) keys "
-          f"in {time.time()-t_stream:.0f}s", flush=True)
-
-    print("[3/4] pivoting ...", flush=True)
+    rows = np.concatenate(rows_acc); cols = np.concatenate(cols_acc)
+    vals = np.concatenate(vals_acc)
+    del rows_acc, cols_acc, vals_acc
+    print(f"      {n_rows:,} rows read in {time.time()-t_stream:.0f}s", flush=True)
+    df = pd.DataFrame({"r": rows, "c": cols, "v": vals})
+    del rows, cols, vals
+    g = df.groupby(["r", "c"], sort=False, as_index=False)["v"].sum()
+    del df
+    agg = g  # columns r/c/v — downstream factorize block consumes equivalent
+    print(f"      {len(g):,} unique (peak,bin) pairs", flush=True)
+    print("[3/4] building sparse matrix (scipy) + usage fractions ...", flush=True)
     t_piv = time.time()
-    trips = pd.DataFrame({
-        "peak": [k[0] for k in agg],
-        "spot_id": [k[1] for k in agg],
-        "count": list(agg.values()),
-    })
+    import scipy.sparse as sp
+    agg_r = agg["r"].to_numpy(); agg_c = agg["c"].to_numpy(); agg_v = agg["v"].to_numpy()
     del agg
-    matrix = trips.pivot_table(index="peak", columns="spot_id", values="count",
-                               aggfunc="sum", fill_value=0).astype(np.int64)
-    matrix = matrix.reindex(index=peaks["peakID"].tolist(), fill_value=0)
-    matrix.index.name = "site_id"
-    print(f"      {matrix.shape[0]} peaks x {matrix.shape[1]} bins, "
-          f"nnz={(matrix.values != 0).sum():,}, {time.time()-t_piv:.0f}s", flush=True)
+    bx_arr = (agg_c % 1_000_000).astype(np.int64)
+    by_arr = (agg_c // 1_000_000).astype(np.int64)
+    del agg_c
+    composite = bx_arr * 4_000_000 + by_arr   # rat y-bin < 4e6；解码 bx=c//4e6, by=c%4e6
+    spot_codes, spot_uniq = pd.factorize(pd.Series(composite), sort=True)
+    M = sp.coo_matrix((agg_v, (agg_r.astype(np.int64), spot_codes)),
+                      shape=(len(peaks), len(spot_uniq))).tocsr()
+    M.sum_duplicates()
+    del agg_r, agg_v, spot_codes
+    # 行对齐到完整 curated peak 集（agg_r 已是该索引，直接构造全形状）
+    Mfull = sp.csr_matrix((len(peaks), M.shape[1]), dtype=np.int64)
+    Mfull[:, :] = M
+    del M
+    n_bins = Mfull.shape[1]
+    print(f"      {Mfull.shape[0]} peaks x {n_bins} bins, nnz={Mfull.nnz:,}, "
+          f"{time.time()-t_piv:.0f}s", flush=True)
 
-    print("[4/4] writing outputs ...", flush=True)
-    spots = matrix.columns.tolist()
+    print("[4/4] writing outputs (usage CSV, row-chunked) ...", flush=True)
+    uniq_codes = np.asarray(spot_uniq, dtype=np.int64)
+    spot_ids = [f"{int(c // 4_000_000)}_{int(c % 4_000_000)}" for c in uniq_codes]
     coords = pd.DataFrame({
-        "spot_id": spots,
-        "x": [int(s.split("_")[0]) for s in spots],
-        "y": [int(s.split("_")[1]) for s in spots],
+        "spot_id": spot_ids,
+        "x": [int(s.split("_")[0]) for s in spot_ids],
+        "y": [int(s.split("_")[1]) for s in spot_ids],
     })
-    matrix.to_csv(out / "apa_matrix.csv")
     coords.to_csv(out / "coordinates.csv", index=False)
     peaks[["site_id", "peakID", "chr", "start", "end", "strand", "coord"]] \
         .to_csv(out / "apa_sites.csv", index=False)
+    col_sums = np.asarray(Mfull.sum(axis=0)).ravel()
+    sp.csr_matrix(Mfull, dtype=np.float64)  # no-op type hint
+    with open(out / "apa_matrix.csv", "w") as fh:
+        fh.write("site_id," + ",".join(spot_ids) + "\n")
+        site_ids = peaks["peakID"].tolist()
+        inv = np.where(col_sums > 0, 1.0 / np.maximum(col_sums, 1), np.nan)
+        chunk = 512
+        for s in range(0, Mfull.shape[0], chunk):
+            e = min(s + chunk, Mfull.shape[0])
+            blk = np.asarray(Mfull[s:e].todense(), dtype=np.float64)
+            blk = blk * inv[None, :]
+            for i in range(e - s):
+                fh.write(site_ids[s + i] + "," +
+                         ",".join("nan" if np.isnan(v) else f"{v:.6g}" for v in blk[i]) + "\n")
+            if (s // chunk) % 10 == 0:
+                print(f"      wrote {e}/{Mfull.shape[0]} rows", flush=True)
+    nnz = int(Mfull.nnz)
+    n_with_counts = int((np.asarray(Mfull.sum(axis=1)).ravel() > 0).sum())
 
     summary = {
         "dataset": args.dataset,
@@ -126,17 +157,17 @@ def main():
         "sample": args.sample,
         "bin_size": bin_,
         "n_peaks_curated": int(len(peaks)),
-        "n_peaks_with_counts": int((matrix.values != 0).any(axis=1).sum()),
-        "n_bins": int(matrix.shape[1]),
-        "n_triples_collapsed": int(len(trips)),
+        "n_peaks_with_counts": int(n_with_counts),
+        "n_bins": int(n_bins),
+        "n_triples_collapsed": nnz,
         "n_input_rows": int(n_rows),
-        "matrix_nnz": int((matrix.values != 0).sum()),
-        "matrix_sparsity": float((matrix.values == 0).mean()),
-        "value_type": "raw_umi_count_per_bin",
+        "matrix_nnz": nnz,
+        "matrix_sparsity": float(1.0 - nnz / max(1, Mfull.shape[0] * n_bins)),
+        "value_type": "per_bin_site_usage_fraction",
         "apa_ready": True,
         "wall_seconds": round(time.time() - t0, 1),
         "notes": [
-            "Binned from scAPAtrap apa_site_counts.csv.gz (raw UMI counts).",
+            "Binned from scAPAtrap apa_site_counts.csv.gz; usage = count/col_sum per bin (pilot convention).",
             f"DNB spots binned on a {bin_}x{bin_} grid; spot_id = 'xbin_ybin'.",
         ],
     }

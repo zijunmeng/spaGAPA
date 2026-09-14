@@ -38,7 +38,7 @@ run_sample() {
     [ -s "$d/apa_matrix.csv" ] && [ -s "$d/coordinates.csv" ] || { echo "$(ts) skip $k (no binned)"; return 0; }
     local out=$ROOT/pipeline_output/stereo_expansion_downstream/$t
     mkdir -p "$out/uncertainty"
-    if [ ! -s "$out/uncertainty/calibration_summary.json" ]; then
+    if [ ! -s "$out/uncertainty/uncertainty_calibration.json" ]; then
         echo "$(ts) [$k] conformal calibration"
         $PY "$ROOT/scripts/calibrate_uncertainty.py" \
             --apa-matrix "$d/apa_matrix.csv" --coordinates "$d/coordinates.csv" \
@@ -49,17 +49,23 @@ run_sample() {
         echo "$(ts) [$k] spaGAPA pipeline"
         $PY - >> "$LOG" 2>&1 << PYEOF || { echo "$(ts) [$k] spaGAPA FAIL"; return 1; }
 from spagapa import SpaGAPA
-from spagapa.core import APADataset
-ds = APADataset.from_csv(apa_matrix="$d/apa_matrix.csv", coordinates="$d/coordinates.csv")
-res = SpaGAPA(accuracy="highres_fast").fit_transform(ds)
 import os, json
+import numpy as np
+spa = SpaGAPA(analysis_preset="highres_fast", verbose=True)
+res = spa.run(apa_matrix="$d/apa_matrix.csv", coordinates="$d/coordinates.csv", detect_svapa=False)
+spa.save_results("$out/spagapa_run")
 os.makedirs("$out/spagapa_run", exist_ok=True)
-with open("$out/spagapa_run/domains.csv", "w") as f:
-    f.write("domain\\n")
-    f.write("\\n".join(map(str, res.domains)) + "\\n")
-meta = dict(n_domains=int(res.n_domains), recovered_shape=list(res.recovered.shape),
-            uncertainty_shape=list(res.uncertainty.shape))
-json.dump(meta, open("$out/spagapa_run/run_meta.json", "w"), indent=1)
+dom = res.get('domains') or {}
+imp = res.get('imputed_values')
+unc = res.get('uncertainty')
+labels = np.asarray(dom.get('labels', []))
+np.savetxt("$out/spagapa_run/domains.csv", labels, fmt="%d", header="domain", comments="")
+meta = dict(n_domains=int(dom.get('n_domains', 0)),
+            method=dom.get('method'),
+            imputed_shape=list(imp.shape) if imp is not None else None,
+            uncertainty_shape=list(unc.shape) if unc is not None else None,
+            preset=res.get('analysis_preset'))
+json.dump(meta, open("$out/spagapa_run/run_meta.json", "w"), indent=1, default=str)
 print("spaGAPA $k done:", meta)
 PYEOF
         echo "$(ts) [$k] spaGAPA OK"
