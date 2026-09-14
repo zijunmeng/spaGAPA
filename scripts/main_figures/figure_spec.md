@@ -58,7 +58,7 @@ Calibrated against 16 reference papers in `02_ref_papers/` (Appendix C).
 | 5 | Domain recovery | Biology recovered? | ARI/NMI, confusion, domain Moran's I | + organoid 2×2 maps | extend |
 | 6 | Scalability | Runs at scale? | slopes/memory/completion/Pareto + dumbbell, downsampling | — | +2 panels |
 | 7 | Stereo showcase | Subcellular? Cross-species? | PAS yield, 3′ enrichment, binning r | 3-species | major extend |
-| **8** | **Biology payoff (NEW)** | What biology does it unlock? | ΔPDUI programs, program×domain heatmap | MOB frozen + organoid `[PENDING: §7 organoid runs]` | new |
+| **8** | **Biology payoff (NEW)** | What biology does it unlock? | ΔPDUI programs, program×domain heatmap | MOB frozen + organoid 4/4 complete: B4(n=5 domains) C2(n=5) D2(n=5) D4(n=5) | new |
 | GA | Graphical abstract (NEW) | 10-second story | — | — | new |
 | S19–S22 | see §5–§6 | | | | new |
 
@@ -98,7 +98,7 @@ A flow · B per-sample dots+binomial CI (16 samples) · C calibration curve
 **C2: 0.7999/0.8993/0.9498**) · **D platform/species invariance**: coverage
 by Visium-mouse/Stereo-mouse/Stereo-human/Stereo-rat boxes · E width A vs D
 · F spatial instance (frozen peak_20919).
-`[PENDING: stereo_expansion_downstream/*_s2*/uncertainty/*.json + rat]`.
+All 5 complete (see Fig3 panel D data above).
 Script: extend `fig3_conformal.py` (+D; B/C data swap).
 
 ### Figure 4 — Uncertainty quality (+1 panel)
@@ -114,7 +114,7 @@ A–E as built (MOB anatomy; fair mean-vs-GP; config sweep; confusion
 matrix; gradient genes). **C restyle** — STIFT two-group bars: structure
 retention (ARI/NMI) + spatial coherence (domain Moran's I).
 **F — organoid domain maps 2×2** (RA±×16/26 wk) + uncertainty overlay.
-`[PENDING: pipeline_output/stereo_expansion_downstream/gse293464_GSM888288{4,6,7}_s2*/]`. Script: extend `fig5_domain.py`.
+All 4 complete: B4/C2/D2/D4 spagapa_run/domains.csv. Script: extend `fig5_domain.py`.
 
 ### Figure 6 — Scalability (+2 panels)
 A–D as built (slopes 0.84/1.01/1.01/0.49; 8.8 GB @100k; completion;
@@ -124,10 +124,10 @@ boxes ×3 depths; simulator seeds only. Script: extend `fig6_scalability.py`.
 
 ### Figure 7 — Stereo-seq three-species showcase
 A workflow (+mask dual-path GEO/STOmics) · B 3′-QC (mouse frozen
-53.4%@500bp/73.5%@2kb; human/rat flanks `[PENDING: §7 binned dirs]`) · C scale/sparsity
+53.4%@500bp/73.5%@2kb; human/rat flanks from qc_summary.json) · C scale/sparsity
 triplet (21,455 / 22,762 / 23,138 PAS; observed-fraction bars) ·
 D spatial triplet ×3 species (UMI panorama → domains → gene cases; mouse
-Cdk8/Apoe/Gnb1l frozen; human/rat `[PENDING: §7 binned dirs]`) · E binning robustness +
+Cdk8/Apoe/Gnb1l frozen; human/rat from GSM888288{4-7}_binned + GSM9770943) · E binning robustness +
 cross-species alignment mini-panel. Script: extend `fig7_stereo_seq.py`.
 
 ### Figure 8 — Spatial APA programs (biology payoff; NEW)
@@ -139,7 +139,7 @@ analysis cannot?"
   label known genes; FDR from existing differential machinery.
 - **C — program gradient genes**: 2–3 PAS spatial maps with layer-wise
   usage profile curves (frozen Fig5E genes extended).
-- **D — organoid domain-specific programs** `[PENDING: §7 organoid runs]`: domain × program
+- **D — organoid domain-specific programs** 4/4 complete: B4(n=5 domains) C2(n=5) D2(n=5) D4(n=5): domain × program
   heatmap; RA-vs-BMS effect-size overlay (descriptive n=1, no p-values —
   same honesty rule as S14).
 - Script: new `fig8_biology.py` (style: `_style.py` v2 Arial).
