@@ -159,3 +159,4 @@ gp_svapa_uncertainty.png
 # SAW snakemake runtime state + NFS stray files
 .snakemake_mengzijun/
 .nfs*
+data/external/
