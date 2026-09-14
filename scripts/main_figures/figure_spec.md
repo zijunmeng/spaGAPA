@@ -527,6 +527,13 @@ BIB 5 篇：
 | 4 | SpaTM（空间主题模型；benchmark 文化+Fig2/Fig3b 模板） | 41359801 | 10.1093/bib/bbaf657 |
 | 5 | 单细胞长读长 AS 生信框架（综述；Fig1 分步总览模板） | 41378880 | 10.1093/bib/bbaf655 |
 
+补充竞品（2024-2026 新检索，NAR 2025-09-14）：
+
+| # | 论文 | PMID | DOI | 关系 |
+|---|---|---|---|---|
+| 19 | stAI（NAR 2025 53(5):gkaf158——深度学习空间转录组缺失基因插补+注释） | 40057378 | 10.1093/nar/gkaf158 | NAR 已发空间插补方法（证明 venue 接收度）；但为表达量插补、无 APA、无覆盖保证——Introduction 引用作差异化锚点 |
+| 20 | scASprofiler（BIB 2026 bbag497——深度卷积生成网络恢复 scRNA 剪接 junction counts） | — | 10.1093/bib/bbag497 | 领域内"稀疏恢复"最近缘工作；深度生成网络 vs 我们的 GP+conformal，须在 Related Work 对比 |
+
 NAR / GB / GR / NC 13 篇：
 
 | # | 论文 | PMID | DOI |
