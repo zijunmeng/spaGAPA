@@ -14,8 +14,7 @@ spaGAPA is a Python toolkit for spatial transcriptomics APA analysis. It address
 
 spaGAPA solves these problems through four core innovations:
 
-1. **Conformal Uncertainty Quantification** — split-conformal prediction intervals with distribution-free marginal coverage, validated across 11 samples (523k test points; mean |deviation| 0.21 / 0.16 / 0.10 pp at 80/90/95%) and robust across spatial regions and uncertainty strata
-2. **Sparse Gaussian Process Framework** — O(n·m²) probabilistic imputation with heteroscedastic noise estimation; scales to 100k spots (competitors fail at 42k)
+2. **Sparse Gaussian Process Framework** — O(n·m²) probabilistic imputation with heteroscedastic noise estimation; scales to 100k spots (competitors fail at 42k). Conformal coverage validated across **16 samples / 3 species / 2 platforms / 2 callers** (5.3M+ test points; mean |deviation| 0.21/0.16/0.10 pp at 80/90/95% on the 11-sample frozen set, ≤0.07 pp on 5 new samples). Cross-sample transfer decay <0.4 pp on average.
 3. **Subcellular Stereo-seq Support** — the only tool validated on subcellular-resolution Stereo-seq APA data (21,455 PAS × 20.7M DNBs)
 4. **Caller-Agnostic Design** — statistical guarantees hold unchanged when the PAS caller is swapped (scAPAtrap → Sierra on 3 datasets, 2 species × 3 tissues; max coverage deviation 0.5 pp)
 
@@ -57,16 +56,15 @@ Measured power-law slopes (deployed implementations): spaGAPA-fast 0.84, spaGAPA
 
 ### Conformal Uncertainty (Universal Coverage)
 
-11 samples, 523,174 test points, 7 GSE datasets, 4 tissue types, 2 species:
+**16 samples, 5.3M+ test points, 7 GSE datasets (Visium) + 3 GSE (Stereo-seq), 4 tissue types, 3 species (human/mouse/rat), 2 callers (scAPAtrap/Sierra):**
 
-| Target | Mean coverage | Mean abs deviation | Max deviation | Samples within ±5% |
-|--------|--------------|--------------------|---------------|-------------------|
-| 80% | 0.8005 | 0.21 pp | 0.4 pp | 11/11 |
-| 90% | 0.8996 | 0.16 pp | 0.5 pp | 11/11 |
-| 95% | 0.9497 | 0.10 pp | 0.2 pp | 11/11 |
+| Target | Frozen 11-sample set (mean |dev| / max) | New 5-sample set (mean |dev| / max) | Cross-sample transfer (mean decay / max) |
+|--------|---------------------------------------|-------------------------------------|----------------------------------------|
+| 80% | 0.21 pp / 0.4 pp | ≤0.05 pp / 0.07 pp | +0.19 pp / 11.77 pp |
+| 90% | 0.16 pp / 0.5 pp | ≤0.07 pp / 0.07 pp | +0.33 pp / 9.34 pp |
+| 95% | 0.10 pp / 0.2 pp | ≤0.04 pp / 0.04 pp | +0.38 pp / 6.75 pp |
 
-Coverage also holds under spatial-block splits and locally adaptive intervals. Uncertainty-guided triage removes 23% of RMSE at 80% retention (paired across 5 datasets, p = 0.004).
-
+Coverage also holds under spatial-block splits and locally adaptive intervals. Uncertainty-guided triage removes 23% of RMSE at 80% retention (paired across 5 datasets, p = 0.004). Cross-sample transfer (leave-one-out, 110 pairs): average decay <0.4 pp; 95% level is most robust.
 ### Multi-Caller Robustness (Sierra × spaGAPA)
 
 Same Space Ranger BAMs re-called with Sierra 0.99.27, converted to spaGAPA input, **no re-tuning**:
@@ -100,13 +98,15 @@ MOB (mouse olfactory bulb): **ARI = 0.60, NMI = 0.68** (unsupervised Leiden, no 
 | GSE169749 | Colon (DSS) | **Mouse** | 1 | 40,795 |
 | GSE263303 | Brain (Nf1) | **Mouse** | 1 | 36,586 |
 
-### Stereo-seq (1 GSE, subcellular)
+### Stereo-seq (3 GSE, subcellular)
 
 | GSE | Tissue | Species | Samples | PAS × Spots |
 |-----|--------|---------|---------|-------------|
 | GSE263789 | AD brain | Mouse | 5 (AD/WT/3mo) | 21,455 PAS × 20.7M DNB |
+| GSE293464 | Retinal organoids (RA± × 16/26 wk) | **Human** | 4 | 18k–32k PAS × ~14–16k bin200 spots |
+| GSE333693 | Thymus | **Rat** | 1 | 23,138 PAS × 13,917 bin200 spots |
 
-Processed via SAW 8.2.2 → BAM retag adapter (CB=Cx_Cy, UB padded) → scAPAtrap → bin200 aggregation (15,235 spots, ~10.3% observed). Real spatial APA examples: **Cdk8**, **Apoe** (Alzheimer's APOE), **Gnb1l**.
+Processed via SAW 8.2.2 → BAM retag adapter (CB=Cx_Cy, UB padded, fixed-length RX) → scAPAtrap → bin200 aggregation. Real spatial APA examples: mouse **Cdk8**, **Apoe** (Alzheimer's APOE), **Gnb1l**. The GSE293464/GSE333693 expansion (2026-09) carries deposited `barcodeToPos.h5` masks (GEO supplementary) — no STOmics retention-window dependency. Conformal coverage on all 5 new samples (11,259,201 test points, 30 sample×level×mode combinations): 80/90/95% all within **±0.07 pp** of nominal (e.g. D4: 0.7999/0.8999/0.9499). Cross-sample transfer (leave-one-out, 110 pairs): mean decay <0.4 pp at all levels, 95% level max deviation 6.75 pp. See `pipeline_output/stereo_expansion_downstream/conformal_expansion_final5.csv` and `pipeline_output/conformal_transfer/transfer_summary.json`.
 
 ### MOB (external APA matrix)
 
@@ -166,22 +166,17 @@ cd docs && make html   # or connect the repo on readthedocs.org
 
 ```python
 from spagapa import SpaGAPA
-from spagapa.core import APADataset
 
-# Load APA matrix + coordinates
-dataset = APADataset.from_csv(
+pipeline = SpaGAPA(analysis_preset="highres_fast")
+results = pipeline.run(
     apa_matrix="data/processed/gse183456_gsm6047774_scapatrap/apa_matrix.csv",
     coordinates="data/processed/gse183456_gsm6047774_scapatrap/coordinates.csv",
 )
+pipeline.save_results("out_run/")
 
-# Run full pipeline
-pipeline = SpaGAPA(accuracy="highres_fast")
-result = pipeline.fit_transform(dataset)
-
-# Access results
-print(f"Domains: {result.n_domains}")
-print(f"Imputed shape: {result.recovered.shape}")
-print(f"Uncertainty: {result.uncertainty.shape}")
+print(f"Domains: {results['domains']['n_domains']}")
+print(f"Imputed: {results['imputed_values'].shape}")
+print(f"Uncertainty: {results['uncertainty'].shape}")
 ```
 
 ### Conformal Uncertainty Calibration
@@ -399,7 +394,7 @@ OPENBLAS_NUM_THREADS=8 python -m pytest tests/ -q
 1. **GP doesn't beat per-gene mean on entry-wise RMSE** — the gene-level distal-usage index is bimodal; mean predicts the dominant mode. GP's value is in spatial fidelity (0.42 vs 0.00), uncertainty, and scalability, not raw RMSE. This pattern holds on every caller input tested.
 2. **Raw GP uncertainty correlation is modest within genes** (per-gene median r ≈ 0.10–0.19; pooled r ≈ 0.5 partly driven by cross-gene heterogeneity). Residual-based heteroscedastic estimation (method D) clears pooled r ≥ 0.3 and enables risk-coverage triage; conformal calibration provides distribution-free marginal coverage regardless.
 3. **Marginal ≠ conditional coverage** — high-expression bins undercover (~0.82); the guarantee is marginal, not per-subgroup (shown explicitly in Fig 4E / Supp Fig S9).
-4. **Stereo-seq raw FASTQ + mask availability is a field-wide bottleneck** — only 1 of 66 GEO Stereo-seq datasets has both deposited (GSE269906 human AD brain: STAR-aligned feasibility only, mask unobtainable).
+4. **Stereo-seq raw FASTQ + mask availability is a field-wide bottleneck, but improving** — STOmics chip masks are retained on OSS only for a limited window after each experiment and expire for published datasets (documented with official reply: [STOmics/SAW#268](https://github.com/STOmics/SAW/issues/268); GSE269906 human AD brain is mask-blocked for this reason). Mitigation demonstrated (2026-09): a systematic GEO survey (75 series → 28 with DNBSEQ raw data) identified datasets whose authors deposited `barcodeToPos.h5` directly in GEO supplementary; via that route spaGAPA now runs on human retinal-organoid (GSE293464, 4 samples) and rat thymus (GSE333693) Stereo-seq data with unchanged conformal guarantees.
 5. **sAPA-RegNet perturbation model not validated** — cis-regression go/no-go found the simple stability model unsupported at spot level. The regulatory annotation remains descriptive.
 6. **No supervised analysis** — spaGAPA is unsupervised; spvAPA offers supervised sPLS-DA.
 7. **Batch-correction module still under evaluation** — Harmony comparison pending; listed for completeness.
