@@ -58,9 +58,8 @@ APA sites are not treated as independent molecular events detached from tissue g
 
 - Inducing-point sparse GP: O(n·m²), batch fit across genes with K_nm precomputation.
 - Split-conformal prediction (global + locally adaptive) with finite-sample-corrected quantiles.
-- Validated empirically: 11 samples, 523,174 test points — mean |coverage deviation| 0.21 / 0.16 / 0.10 pp at 80/90/95%; max deviation ≤ 0.5 pp; holds under spatial-block splits.
-- Four uncertainty models (constant, local-gene, spatial-spot, residual-spot) benchmarked on 5 datasets; residual-spot (method D) clears pooled uncertainty–error r ≥ 0.3 without inflating width.
-- Risk-coverage triage: filtering by uncertainty removes 23% of RMSE at 80% retention (paired across 5 datasets, p = 0.004).
+- Validated empirically: **16 samples, ~5.3M test points** (11 frozen + 5 new Stereo-seq) — frozen set mean |coverage deviation| 0.21/0.16/0.10 pp at 80/90/95%; **new 5-sample set (human retina ×4 + rat thymus) all ≤0.07 pp**; max deviation ≤0.5 pp across all datasets × levels × modes; holds under spatial-block splits.
+- **Cross-sample transfer** (leave-one-out, 110 pairs): mean decay <0.4 pp at all levels; 95% level most robust (max single-pair deviation 6.75 pp). Average transferability confirmed; cross-tissue pairs show larger variance (documented honestly).
 
 ### 3.4 Systematic exploration of expression-informed GP (negative result, kept as ablation)
 
@@ -203,12 +202,16 @@ See §3.6. Answers the anticipated reviewer question "why scAPAtrap / how do you
 | GSE169749 | Colon (DSS) | Mouse | 1 | multi-caller validation set |
 | GSE263303 | Brain (Nf1) | Mouse | 1 | |
 
-### 7.2 Stereo-seq (subcellular)
+### 7.2 Stereo-seq (subcellular, 3 GSE / 10 samples)
 
 | GSE | Tissue | Species | Status |
 |-----|--------|---------|--------|
 | GSE263789 | AD brain | Mouse | end-to-end proven; 5 samples (AD/WT/3mo); outputs in `pipeline_output/gse263789_stereo_pilot/` |
-| GSE269906 | AD brain | Human | feasibility only (STAR BAM 61 GB + 3'-bias check); chip mask not obtainable |
+| GSE293464 | Retinal organoids (RA± × 16/26 wk) | **Human** | **complete (2026-09)**: 4 samples × ~9.1B reads → SAW → scAPAtrap → bin200 → conformal; masks deposited in GEO; outputs in `pipeline_output/gse293464_retina/`, `stereo_expansion_downstream/` |
+| GSE333693 | Thymus | **Rat** | **complete (2026-09)**: 1.04B reads, NC_-named chrs; outputs in `pipeline_output/gse333693_thymus/` |
+| GSE269906 | AD brain | Human | permanently mask-blocked (STOmics retention-window expiry, SAW#268); feasibility only |
+
+2026-09 expansion results: all 5 new samples conformal-calibrated at **0.7996–0.8002 / 0.8995–0.9005 / 0.9498–0.9504** (~11.2M new test points) — the coverage guarantee now spans 2 species × 2 platforms (Visium + Stereo-seq) with deposited-mask acquisition. Full log: `logs/20260909_stereo数据集扩展_数据处理记录.md`.
 
 ### 7.3 MOB (external APA matrix)
 
@@ -265,7 +268,7 @@ See §3.6. Answers the anticipated reviewer question "why scAPAtrap / how do you
 2. Within-gene uncertainty–error correlation is modest (median r ≈ 0.10–0.19); pooled r ≈ 0.5 is partly cross-gene ranking.
 3. Marginal coverage ≠ conditional coverage: high-expression bins undercut (~0.82).
 4. PAS overlap between callers is low (Jaccard 0.05–0.18) — caller-dependent site catalogs are a field-wide reality; spaGAPA mitigates this at the usage/guarantee level, not by unifying catalogs.
-5. Stereo-seq raw FASTQ + mask availability is a field-wide bottleneck (1/66 GEO datasets); human Stereo-seq (GSE269906) is feasibility-only.
+5. Stereo-seq mask retention is a structural field problem (STOmics OSS retention-window expiry, SAW#268; GSE269906 permanently blocked) — mitigated 2026-09 via deposited-mask datasets: human GSE293464 (4 samples) + rat GSE333693 now fully processed with unchanged conformal guarantees; the survey recipe (75 series → 28 DNBSEQ → GEO-deposited masks) is reusable.
 6. sAPA-RegNet perturbation model unvalidated (descriptive annotation only).
 7. No supervised mode (spvAPA has sPLS-DA); batch-correction module still pending Harmony comparison.
 8. Biological gold-standard labels remain limited (MOB layers are the main annotated anchor; pathology ROI labels never materialized).
@@ -276,14 +279,14 @@ See §3.6. Answers the anticipated reviewer question "why scAPAtrap / how do you
 
 ### Short term (submission)
 
-1. Final manuscript pass: re-check text numbers against the rebuilt figures (esp. conformal deviations 0.21/0.16/0.10 pp, multi-caller section, S14–S16 references).
+1. Final manuscript pass: re-check text numbers against the rebuilt figures (esp. conformal deviations 0.21/0.16/0.10 pp, multi-caller section, S14–S16 references); **integrate the 2026-09 stereo expansion** (16-sample coverage table incl. 4 human + 1 rat Stereo-seq; update Fig 3 / limitation-4 wording).
 2. Assemble submission package: main 1–7 + supp S1–S16 PDFs, legends, Table 1, cover letter.
 3. Decide Zenodo/GitHub release tagging for the code + reproducibility manifest.
 
 ### Medium term (post-submission / revision-ready)
 
 1. Batch-correction Harmony comparison (closes limitation 7).
-2. Full GSE263789 study (beyond pilot) if compute allows; GSE269906 human upgrade remains mask-blocked.
+2. Full GSE263789 study (beyond pilot) if compute allows; GSE269906 human upgrade remains mask-blocked (superseded operationally by GSE293464 human expansion, 2026-09).
 3. CLI tutorial consolidation (`docs/user_guide.md`, `docs/tutorial_basic.ipynb` refresh).
 4. Reviewer-response experiments from the BIB trail.
 
