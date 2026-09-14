@@ -12,6 +12,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+import glob as _glob
+
+# Register system Arial fonts (msfonts not in matplotlib default search path)
+for _fp in _glob.glob("/usr/share/fonts/msfonts/ARIAL*.TTF"):
+    try:
+        fm.fontManager.addfont(_fp)
+    except Exception:
+        pass
 import numpy as np
 import os
 
@@ -59,13 +67,20 @@ NOISE_METHOD_LABELS = {
 
 OUT = "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/main_figures"
 
-# BIB page geometry (inches). Size figures so text stays >= 7-8 pt at print.
-PAGE_WIDTH_IN = 7.0    # double-column width (~178 mm)
-SINGLE_COL_IN = 3.4    # single column (~86 mm)
+# NC/NAR page geometry (inches). 183 mm = 7.2 in (Nature double-column, NAR full width).
+PAGE_WIDTH_IN = 7.2    # double-column width (~183 mm)
+SINGLE_COL_IN = 3.5    # single column (~89 mm)
 
 def setup_rc():
+    """NC/NAR publication style: Arial, 183mm double-column width."""
     plt.rcParams.update({
-        "font.family": "DejaVu Sans",
+        # NC/NAR mandate: Arial throughout (incl. mathtext)
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],
+        "mathtext.fontset": "custom",
+        "mathtext.rm": "Arial",
+        "mathtext.it": "Arial:italic",
+        "mathtext.bf": "Arial:bold",
         "font.size": 9,
         "axes.titlesize": 10,
         "axes.titleweight": "bold",
@@ -84,7 +99,7 @@ def setup_rc():
         "ytick.major.width": 0.8,
         "savefig.dpi": 300,
         "figure.dpi": 100,
-        "pdf.fonttype": 42,
+        "pdf.fonttype": 42,   # TrueType embed (journal requirement)
         "ps.fonttype": 42,
     })
 
