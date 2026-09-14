@@ -58,7 +58,7 @@ APA sites are not treated as independent molecular events detached from tissue g
 
 - Inducing-point sparse GP: O(n·m²), batch fit across genes with K_nm precomputation.
 - Split-conformal prediction (global + locally adaptive) with finite-sample-corrected quantiles.
-- Validated empirically: **16 samples, ~5.3M test points** (11 frozen + 5 new Stereo-seq) — frozen set mean |coverage deviation| 0.21/0.16/0.10 pp at 80/90/95%; **new 5-sample set (human retina ×4 + rat thymus) all ≤0.07 pp**; max deviation ≤0.5 pp across all datasets × levels × modes; holds under spatial-block splits.
+- Validated empirically: **16 samples (10 independent GSE studies, 11 tissue contexts; 4 retinal replicates = one context), ~5.3M test points** (11 frozen + 5 new Stereo-seq) — frozen set mean |coverage deviation| 0.21/0.16/0.10 pp at 80/90/95%; **new 5-sample set (human retina ×4 + rat thymus) all ≤0.07 pp**; max deviation ≤0.5 pp across all datasets × levels × modes. Random and quadrant splits stay within 1.5 pp; the most adversarial layer-blocked split over-covers conservatively (+3.1 pp at 80% — P0-3 pre-registered test, see `pipeline_output/p0_adversarial_validation/`).
 - **Cross-sample transfer** (leave-one-out, 110 pairs): mean decay <0.4 pp at all levels; 95% level most robust (max single-pair deviation 6.75 pp). Average transferability confirmed; cross-tissue pairs show larger variance (documented honestly).
 
 ### 3.4 Systematic exploration of expression-informed GP (negative result, kept as ablation)

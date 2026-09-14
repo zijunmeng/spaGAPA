@@ -14,7 +14,7 @@ spaGAPA is a Python toolkit for spatial transcriptomics APA analysis. It address
 
 spaGAPA solves these problems through four core innovations:
 
-2. **Sparse Gaussian Process Framework** — O(n·m²) probabilistic imputation with heteroscedastic noise estimation; scales to 100k spots (competitors fail at 42k). Conformal coverage validated across **16 samples / 3 species / 2 platforms / 2 callers** (5.3M+ test points; mean |deviation| 0.21/0.16/0.10 pp at 80/90/95% on the 11-sample frozen set, ≤0.07 pp on 5 new samples). Cross-sample transfer decay <0.4 pp on average.
+2. **Sparse Gaussian Process Framework** — O(n·m²) probabilistic imputation with heteroscedastic noise estimation; scales to 100k spots (competitors fail at 42k). Conformal coverage validated across **16 samples drawn from 10 independent GSE studies spanning 11 tissue contexts** / 3 species / 2 platforms / 2 callers (5.3M+ test points; mean |deviation| 0.21/0.16/0.10 pp at 80/90/95% on the 11-sample frozen set, ≤0.07 pp on 5 new samples). Four retinal-organoid samples are biological replicates of one study — counted as one context. Cross-sample transfer decay <0.4 pp on average. Coverage is exact under random splits at all depths and inducing budgets, but degrades conservatively under layer-blocked splits (+3.1 pp at 80%, see Limitation 5/11).
 3. **Subcellular Stereo-seq Support** — the only tool validated on subcellular-resolution Stereo-seq APA data (21,455 PAS × 20.7M DNBs)
 4. **Caller-Agnostic Design** — statistical guarantees hold unchanged when the PAS caller is swapped (scAPAtrap → Sierra on 3 datasets, 2 species × 3 tissues; max coverage deviation 0.5 pp)
 
@@ -56,7 +56,7 @@ Measured power-law slopes (deployed implementations): spaGAPA-fast 0.84, spaGAPA
 
 ### Conformal Uncertainty (Universal Coverage)
 
-**16 samples, 5.3M+ test points, 7 GSE datasets (Visium) + 3 GSE (Stereo-seq), 4 tissue types, 3 species (human/mouse/rat), 2 callers (scAPAtrap/Sierra):**
+**16 samples drawn from 10 independent GSE studies (11 tissue contexts — 4 retinal replicates counted as one), 5.3M+ test points, 7 GSE (Visium) + 3 GSE (Stereo-seq), 3 species (human/mouse/rat), 2 callers (scAPAtrap/Sierra):**
 
 | Target | Frozen 11-sample set (mean |dev| / max) | New 5-sample set (mean |dev| / max) | Cross-sample transfer (mean decay / max) |
 |--------|---------------------------------------|-------------------------------------|----------------------------------------|
@@ -64,7 +64,7 @@ Measured power-law slopes (deployed implementations): spaGAPA-fast 0.84, spaGAPA
 | 90% | 0.16 pp / 0.5 pp | ≤0.07 pp / 0.07 pp | +0.33 pp / 9.34 pp |
 | 95% | 0.10 pp / 0.2 pp | ≤0.04 pp / 0.04 pp | +0.38 pp / 6.75 pp |
 
-Coverage also holds under spatial-block splits and locally adaptive intervals. Uncertainty-guided triage removes 23% of RMSE at 80% retention (paired across 5 datasets, p = 0.004). Cross-sample transfer (leave-one-out, 110 pairs): average decay <0.4 pp; 95% level is most robust.
+Coverage holds under quadrant-block splits (+1.5 pp at 80%) and locally adaptive intervals; under the most adversarial layer-blocked splits it over-covers conservatively (+3.1 pp at 80%, +1.6 pp at 90%, +0.7 pp at 95% — pre-registered P0-3 test, `pipeline_output/p0_adversarial_validation/`). Uncertainty-guided triage removes 23.3% of RMSE at 80% retention (range 15.6-30.5%, 5 datasets; vs 0.1% for random discarding). Cross-sample transfer (leave-one-out, 110 pairs): average decay <0.4 pp; 95% level is most robust.
 ### Multi-Caller Robustness (Sierra × spaGAPA)
 
 Same Space Ranger BAMs re-called with Sierra 0.99.27, converted to spaGAPA input, **no re-tuning**:
