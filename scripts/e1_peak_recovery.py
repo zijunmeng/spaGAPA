@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""E4 peak-set recovery (memory-safe): re-curate from scAPAtrap long-format reduced counts.
+"""E1 peak-set recovery (memory-safe): re-curate from scAPAtrap long-format reduced counts.
 
 (peak, cell) pairs verified unique -> per-peak n_cells = row count; total = sum(count).
 Streams counts.tsv.gz.reduced (~75M rows), curates >=10 cells & >=10 counts,
@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-ROOT = Path("/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/gse263789_expand/ad18_e4")
+ROOT = Path("/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/gse263789_expand/3m_e1")
 RAW = ROOT / "scapatrap_raw"
 OUT = ROOT / "binned_200_raw_recovered"
 OUT.mkdir(parents=True, exist_ok=True)

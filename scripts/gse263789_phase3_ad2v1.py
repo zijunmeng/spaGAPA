@@ -48,7 +48,7 @@ CONDITIONS = {
     "E3_5m_ad": ROOT / "gse263789_stereo_pilot/spagapa_downstream_full/binned_200_raw",
     "E4_5m_ad": ROOT / "gse263789_expand/ad18_e4/binned_200_raw_recovered",
     "F5_wt":    ROOT / "gse263789_wt_control/binned_200",
-    "E1_3m_ad": ROOT / "gse263789_expand/3m_e1/binned_200",
+    "E1_3m_ad": ROOT / "gse263789_expand/3m_e1/binned_200_raw_recovered",
     "E2_3m_ad": ROOT / "gse263789_expand/3m_e2/binned_200",
 }
 
