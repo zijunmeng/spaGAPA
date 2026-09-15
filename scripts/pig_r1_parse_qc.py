@@ -30,8 +30,8 @@ def parse(r1_path: str, n_max: int = 2_000_000, sample_out: str | None = None):
     fixed_offset = collections.Counter()
     pas_samples = []
     rng = 93
-    with gzip.open(r1_path, "rt") as f, \
-         (open(sample_out, "w") if sample_out else None) as out:
+    out = open(sample_out, "w") if sample_out else None
+    with gzip.open(r1_path, "rt") as f:
         n = 0
         h = s = q = None
         for line in f:
