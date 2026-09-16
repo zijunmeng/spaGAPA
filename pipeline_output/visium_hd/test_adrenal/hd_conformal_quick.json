@@ -1,0 +1,14 @@
+{
+  "platform": "Visium HD fresh-frozen (mouse adrenal)",
+  "chemistry": "SPATIAL-HD-v1-3P (2um, poly-dT)",
+  "n_peaks": 887,
+  "n_barcodes": 50000,
+  "n_held_out": 30218,
+  "n_test": 15109,
+  "coverage": {
+    "80pct": 0.8017737772188762,
+    "90pct": 0.9067443245747567,
+    "95pct": 0.9530081408432061
+  },
+  "method": "per-peak mean imputation + split-conformal (50/50)"
+}
