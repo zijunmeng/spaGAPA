@@ -18,8 +18,10 @@ import collections
 import json
 import re
 
-FIXED_FULL = "GTTCGCAACATGTCTGGCGTCATAGAATTC"  # xlsx 官方
-FIXED_ANCHOR = "CAACATGTCTGGCGTCATAGA"          # 实测稳定子串
+# 工作代码精确边界（docs/scr_zhenmai/python/filter_R1_byliga.py + split_bc.py）:
+#   bc = revcomp(R1[0:32]); ligation = R1[32:83] (51bp 恒定); UMI = R1[83:93]
+LIGATION = "GTTCGCAACATGTCTGGCGTCATAGAATTCCGCAGTCCAGTACGACTCACT"
+FIXED_ANCHOR = "CAACATGTCTGGCGTCATAGA"
 
 
 def parse(r1_path: str, n_max: int = 2_000_000, sample_out: str | None = None):
