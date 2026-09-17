@@ -233,6 +233,25 @@ class TestSparseGPAutoEnable:
         options = pipe._resolve_run_options(impute=True, use_bioml=None)
         assert options.get("use_sparse_gp") is False
 
+    def test_highres_accuracy_enables_logit_transform(self):
+        """highres_accuracy must run the sparse GP in latent logit space
+        (bounded [0, 1] predictions for APA usage fractions)."""
+        pipe, ds = self._build_pipeline_with_dataset(
+            n_genes=50, n_spots=5000, preset="highres_accuracy"
+        )
+        options = pipe._resolve_run_options(impute=True, use_bioml=None)
+        assert options["sparse_gp"]["transform"] == 'logit'
+
+    def test_other_presets_keep_raw_gp(self):
+        """standard / highres_fast must keep transform=None (backward
+        compatible raw-value GP)."""
+        for preset in ("standard", "highres_fast"):
+            pipe, ds = self._build_pipeline_with_dataset(
+                n_genes=50, n_spots=200, preset=preset
+            )
+            options = pipe._resolve_run_options(impute=True, use_bioml=None)
+            assert options["sparse_gp"]["transform"] is None, preset
+
 
 class TestChunkedFactorizer:
     """gene_chunk_size parameter processes genes in batches, reducing peak

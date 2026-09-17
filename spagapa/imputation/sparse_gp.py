@@ -9,6 +9,7 @@ import numpy as np
 from typing import Optional, Tuple, Literal
 from scipy.spatial import distance_matrix
 from scipy.linalg import cho_solve, cho_factor, solve_triangular
+from scipy.special import expit
 from sklearn.cluster import KMeans
 import logging
 
@@ -53,15 +54,24 @@ class SparseGPImputer:
         variance of observed values instead of using the flat ``noise_level``
         constant.  This makes the predictive uncertainty track the actual
         error (a flat 0.1 noise_level yields ~constant std across tissue).
-    noise_scale : float, default=1000.0
-        Multiplier applied to the local-noise variance estimate when
-        ``local_noise`` is True.  The RBF kernel has a fixed unit amplitude,
-        so this scaling brings the per-gene noise estimate (typically ~1e-3
-        for a [0,1]-bounded APA index) into the O(1) kernel-amplitude regime
-        where the GP is appropriately skeptical of noisy, weakly-spatial
-        data.  Empirically validated to turn Moran's-I recovery from
-        negative (~-0.32) to near-zero/positive and to roughly double the
-        uncertainty-error correlation.
+    transform : str, optional
+        'logit' applies GP in latent logit space (z = logit(p)),
+        guaranteeing predictions in [0, 1]. Recommended for
+        compositional/proportion data such as APA usage fractions.
+        None (default) applies GP directly on raw values.
+    epsilon : float, default=0.05
+        Clipping boundary used with ``transform='logit'``: observed
+        values are clipped to ``[epsilon, 1 - epsilon]`` before the
+        logit transform so that exact 0/1 observations map to finite
+        latent values instead of +/- infinity.  The default of 0.05
+        acts as a pseudo-count shrinkage of boundary proportions (an
+        observed usage of exactly 0 or 1 usually reflects low read
+        depth rather than an extreme latent probability) and keeps the
+        latent range within about +/- 3, matching the fixed
+        unit-amplitude RBF kernel.  Empirically validated on MOB st11
+        (top-100 multi-PAS genes, seeds 42/43): epsilon=0.05 gives
+        RMSE parity with the raw-space GP (ratio ~1.02) versus 1.44
+        with epsilon=1e-6.
 
     Attributes
     ----------
@@ -87,9 +97,17 @@ class SparseGPImputer:
         length_scale_multiplier: Optional[float] = None,
         local_noise: bool = False,
         noise_scale: float = 1000.0,
+        transform: Optional[str] = None,
+        epsilon: float = 0.05,
     ):
         if kernel_type != 'rbf':
             raise ValueError("SparseGPImputer currently supports only kernel_type='rbf'")
+        if transform not in (None, 'logit'):
+            raise ValueError(
+                "transform must be None or 'logit', got "
+                f"{transform!r}")
+        if not (0.0 < epsilon < 0.5):
+            raise ValueError(f"epsilon must be in (0, 0.5), got {epsilon}")
         self.n_inducing = n_inducing
         self.inducing_method = inducing_method
         self.length_scale = length_scale
@@ -98,6 +116,8 @@ class SparseGPImputer:
         self.length_scale_multiplier = length_scale_multiplier
         self.local_noise = local_noise
         self.noise_scale = noise_scale
+        self.transform = transform
+        self.epsilon = float(epsilon)
 
         self.inducing_points_ = None
         self.alpha_ = None
@@ -269,6 +289,55 @@ class SparseGPImputer:
             var = float(np.var(train_values))
             return max(var * scale, 1e-3)
 
+    def _forward(self, y: np.ndarray) -> np.ndarray:
+        """Map observed values to the latent space the GP operates on.
+
+        With ``transform='logit'`` returns ``logit(clip(y, eps, 1-eps))``;
+        with ``transform=None`` (default) returns ``y`` unchanged, which
+        reproduces the historical raw-value GP exactly.
+
+        Parameters
+        ----------
+        y : np.ndarray
+            Observed values (original space), assumed to already exclude
+            missing entries (apply after masking).
+
+        Returns
+        -------
+        np.ndarray
+            Latent-space values, shape identical to ``y``.
+        """
+        if self.transform == 'logit':
+            y_clipped = np.clip(np.asarray(y, dtype=float),
+                                self.epsilon, 1.0 - self.epsilon)
+            return np.log(y_clipped / (1.0 - y_clipped))
+        return y
+
+    def _inverse(self, z: np.ndarray) -> np.ndarray:
+        """Map latent-space predictions back to the original space.
+
+        Inverse of :meth:`_forward`: with ``transform='logit'`` returns
+        ``sigmoid(z) = 1 / (1 + exp(-z))``, which is guaranteed to lie in
+        (0, 1); with ``transform=None`` returns ``z`` unchanged.
+
+        Parameters
+        ----------
+        z : np.ndarray
+            Latent-space predictions.
+
+        Returns
+        -------
+        np.ndarray
+            Original-space predictions, shape identical to ``z``.
+        """
+        if self.transform == 'logit':
+            # expit is a numerically stable 1 / (1 + exp(-z)); latent
+            # predictions can be extreme when extrapolating far from the
+            # training data, where the naive formula overflows exp().
+            return expit(z)
+        return z
+
+
     def fit(
         self,
         coordinates: np.ndarray,
@@ -337,7 +406,9 @@ class SparseGPImputer:
         mask = np.asarray(mask, dtype=bool)
 
         train_coords = coordinates[mask]
-        train_values = values[mask]
+        # Latent-space training values (identity when transform is None):
+        # the GP is fitted on logit(p) for bounded proportion data.
+        train_values = self._forward(values[mask])
 
         if len(train_values) == 0:
             raise ValueError("No training data available")
@@ -499,9 +570,16 @@ class SparseGPImputer:
         Returns
         -------
         predictions : np.ndarray, shape (n_test,)
-            Predicted values
+            Predicted values in the ORIGINAL space (when
+            ``transform='logit'`` the latent posterior mean is mapped
+            back through the logistic sigmoid, so predictions are
+            guaranteed to lie in (0, 1)).
         std : np.ndarray, optional
-            Standard deviations
+            Standard deviations.  With ``transform='logit'`` these are
+            the LATENT-space posterior stds: conformal calibration
+            standardises original-space errors by this latent scale,
+            which keeps the interval semantics of the calibration
+            module unchanged.
         """
         if self.inducing_points_ is None or self.alpha_ is None:
             raise ValueError("Model not fitted. Call fit() first.")
@@ -519,8 +597,9 @@ class SparseGPImputer:
         K_star_m = self._rbf_kernel(coordinates, self.inducing_points_,
                                     length_scale=eff_length)
 
-        # Predictions: K_*m @ alpha
-        predictions = K_star_m @ self.alpha_
+        # Predictions: K_*m @ alpha (latent space)
+        # Map back to the original space (identity when transform is None).
+        predictions = self._inverse(K_star_m @ self.alpha_)
 
         if return_std:
             # Compute predictive variance
@@ -693,6 +772,8 @@ class SparseGPImputerBatch:
             length_scale_multiplier=self.base_imputer.length_scale_multiplier,
             local_noise=self.base_imputer.local_noise,
             noise_scale=self.base_imputer.noise_scale,
+            transform=self.base_imputer.transform,
+            epsilon=self.base_imputer.epsilon,
         )
 
     def _fit_batch(self):

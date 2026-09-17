@@ -272,6 +272,7 @@ class SpaGAPA:
             'length_scale': self.sparse_gp_length_scale,
             'length_scale_multiplier': self.sparse_gp_length_scale_multiplier,
             'noise_level': self.sparse_gp_noise_level,
+            'transform': None,
         }
         if resolved_preset == 'highres_accuracy':
             n_spots = int(self.dataset_.n_spots) if self.dataset_ is not None else 0
@@ -280,6 +281,12 @@ class SpaGAPA:
                 params['length_scale'] = 'auto'
             if abs(self.sparse_gp_noise_level - 0.1) < 1e-12:
                 params['noise_level'] = 0.08
+            # Latent-logit GP: APA usage fractions are bounded proportions,
+            # so the Gaussian likelihood is applied in logit space and
+            # predictions are mapped back through the sigmoid.  This
+            # guarantees [0, 1] output without post-hoc clipping.
+            params['transform'] = 'logit'
+            params['epsilon'] = 0.05  # pseudo-count shrinkage of 0/1 usages
         return params
 
     def _resolve_run_options(
@@ -323,6 +330,10 @@ class SpaGAPA:
                 'length_scale': self._active_sparse_gp_params['length_scale'],
                 'length_scale_multiplier': self._active_sparse_gp_params['length_scale_multiplier'],
                 'noise_level': self._active_sparse_gp_params['noise_level'],
+                'transform': self._active_sparse_gp_params.get('transform'),
+                'transform_epsilon': (
+                    self._active_sparse_gp_params.get('epsilon') if
+                    self._active_sparse_gp_params.get('transform') else None),
             },
             'use_bioml': bool(use_bioml_this_run),
             'bioml_weights': {
@@ -882,6 +893,7 @@ class SpaGAPA:
                     'length_scale': self.sparse_gp_length_scale,
                     'length_scale_multiplier': self.sparse_gp_length_scale_multiplier,
                     'noise_level': self.sparse_gp_noise_level,
+                    'transform': None,
                 }
                 length_scale = self._resolve_sparse_gp_length_scale(
                     coords,
@@ -890,7 +902,8 @@ class SpaGAPA:
                 )
                 base_imputer = SparseGPImputer(
                     n_inducing=int(sparse_params['n_inducing']),
-                    inducing_method=sparse_params['inducing_method'],
+                    transform=sparse_params.get('transform'),
+                    epsilon=sparse_params.get('epsilon', 0.05),
                     length_scale=length_scale,
                     noise_level=sparse_params['noise_level'],
                 )

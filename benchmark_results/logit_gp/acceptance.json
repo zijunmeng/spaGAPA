@@ -1,0 +1,11 @@
+{
+  "logit_all_within_unit_interval": true,
+  "rmse_ratio_logit_over_raw": 1.0222405091023155,
+  "rmse_within_10pct": true,
+  "coverage_90_mean_logit": 0.8984762734000871,
+  "coverage_90_mean_raw": 0.9020461471484544,
+  "gradient_r_mean_logit": 0.4862412411823769,
+  "gradient_r_mean_raw": 0.49718079003811855,
+  "oob_field_mean_raw": 297.0,
+  "oob_field_mean_logit": 0.0
+}

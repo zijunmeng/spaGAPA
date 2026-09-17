@@ -4,6 +4,26 @@ All notable changes to spaGAPA are documented here.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- `SparseGPImputer(transform='logit')`: latent logit-space sparse GP for
+  bounded compositional data (APA usage fractions). Training values are
+  mapped through `logit(clip(y, epsilon, 1 - epsilon))` and predictions
+  back through the logistic sigmoid, guaranteeing output in (0, 1)
+  without post-hoc clipping. `epsilon` (default 0.05) acts as
+  pseudo-count shrinkage of boundary proportions. Posterior std is
+  reported in latent space; conformal calibration stays an
+  original-space procedure (`|y_true - y_pred|` scores). Default
+  `transform=None` preserves the historical raw-value GP.
+- `highres_accuracy` preset now enables `transform='logit'` for sparse
+  GP imputation; other presets keep the raw-value GP.
+- `scripts/test_logit_gp.py`: MOB st11 benchmark (top-100 multi-PAS
+  genes, 20% masking, 5 seeds) comparing raw vs logit GP on RMSE,
+  out-of-bound counts, conformal coverage/width, spatial gradient
+  recovery, and runtime. Results in `benchmark_results/logit_gp/`.
+
 ## [0.1.0] — 2026-03-11 (Beta)
 
 ### Added
