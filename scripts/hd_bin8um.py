@@ -33,27 +33,24 @@ def main():
     HD_BIN_UM = 2  # HD 原生 2µm 网格
     factor = BIN_UM // HD_BIN_UM  # 4x4
 
-    sr = Path(a.sr_dir) if a.sr_dir else RAW.parent / "sr" / "outs"
-    # 坐标来源优先级: spatial/tissue_positions.parquet > csv > binned_outputs src
-    pos = None
-    for cand in [sr / "spatial/tissue_positions.parquet",
-                 sr / "spatial/tissue_positions_list.csv",
-                 sr / "spatial/tissue_positions.csv"]:
-        if cand.exists():
-            pos = cand; break
-    if pos is None:
-        raise SystemExit(f"缺坐标文件（需 spaceranger outs/spatial）: {sr}")
-    if str(pos).endswith(".parquet"):
-        tpos = pd.read_parquet(pos)
-    else:
-        tpos = pd.read_csv(pos, header=None,
-                           names=["barcode", "in_tissue", "array_row", "array_col",
-                                  "pxl_row", "pxl_col"], index_col=0) \
-              if (pos.stat().st_size and open(pos).readline().count(",") == 4) \
-              else pd.read_csv(pos, index_col=0)
-    # HD: array_row/array_col = 2µm 网格索引
-    bc2xy = {b: (int(r.array_row) // factor, int(r.array_col) // factor)
-             for b, r in tpos.iterrows()}
+    # 坐标来源: BAM 的 (CB, sb:Z:s_002um_R_C) 标签对 → cb_to_position.tsv。
+    # spaceranger 4.1.0 HD 的 tissue_positions.parquet barcode 列是合成 bin ID
+    # （s_002um_...），不是序列，无法直接匹配 scAPAtrap 的 spot_id（=CB 序列）。
+    cbpos = RAW.parent / "cb_to_position.tsv"
+    if not cbpos.exists():
+        bam = RAW.parent / "sr" / "outs" / "possorted_genome_bam.bam"
+        if not bam.exists():
+            raise SystemExit(f"缺 {cbpos} 且找不到 {bam}")
+        print(f"[bin8um] cb_to_position.tsv 缺失，从 BAM 提取…")
+        import subprocess
+        subprocess.run(["/home/mengzijun/anaconda3/envs/spagapa/bin/python",
+                        str(Path(__file__).parent / "hd_extract_cb_position.py"),
+                        "--bam", str(bam), "--output", str(cbpos)], check=True)
+    cpos = pd.read_csv(cbpos, sep="\t", dtype={"cb": str})
+    # 2µm 网格 → 目标 bin（4x4 聚合）
+    bc2xy = {b: (int(r) // factor, int(c) // factor)
+             for b, r, c in zip(cpos["cb"], cpos["sb_row"], cpos["sb_col"])}
+    print(f"[bin8um] CB→bin 映射: {len(bc2xy):,} barcodes")
 
     peaks = pd.read_csv(RAW / "peaks_meta.csv.gz")
     prow = peaks["peakID"].tolist()

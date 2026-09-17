@@ -1,0 +1,67 @@
+{
+  "config": {
+    "apa_matrix": "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/visium_hd/gse337131_huntington/BG13/binned_8um/apa_matrix.csv",
+    "coordinates": "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/visium_hd/gse337131_huntington/BG13/binned_8um/coordinates.csv",
+    "n_genes": 34,
+    "n_spots": 688158,
+    "mask_fraction": 0.2,
+    "cal_fraction": 0.5,
+    "n_held_out": 652178,
+    "n_calibration": 326089,
+    "n_test": 326089,
+    "filter_frac": 0.2,
+    "seed": 42,
+    "gp_length_scale": 5.0,
+    "gp_n_inducing": 500,
+    "gp_nn_distance": 1.0
+  },
+  "timings": {
+    "gp_fit_impute_s": 567.1185536384583,
+    "total_s": 662.2030167579651
+  },
+  "before": {
+    "unc_error_pearson": 0.17639083123154103,
+    "unc_error_spearman": 0.4384985539816306,
+    "coverage": {
+      "80pct": 0.10415561395815252,
+      "90pct": 0.16855827703479725,
+      "95pct": 0.5591970290319515
+    },
+    "rmse": 4.275767939968363,
+    "rmse_after_filter_top_unc": 4.168448603299862
+  },
+  "after": {
+    "modes": {
+      "global": {
+        "coverage": {
+          "80pct": 0.7993737905909123,
+          "90pct": 0.8997880946612734,
+          "95pct": 0.9505104434678876
+        },
+        "q_hat": {
+          "80pct": 4.832691402874689,
+          "90pct": 6.935675638687145,
+          "95pct": 8.952315259651954
+        },
+        "calibration_unc_error_corr": NaN,
+        "rmse": 4.275767939968363,
+        "rmse_after_filter_top_unc": 4.295381222652264
+      },
+      "locally_adaptive": {
+        "coverage": {
+          "80pct": 0.7994841898990767,
+          "90pct": 0.9003247579648501,
+          "95pct": 0.950991907117382
+        },
+        "q_hat": {
+          "80pct": 4.739271537109734,
+          "90pct": 6.664575304187103,
+          "95pct": 8.573818551784907
+        },
+        "calibration_unc_error_corr": 0.17563542213295105,
+        "rmse": 4.275767939968363,
+        "rmse_after_filter_top_unc": 4.168448603299862
+      }
+    }
+  }
+}

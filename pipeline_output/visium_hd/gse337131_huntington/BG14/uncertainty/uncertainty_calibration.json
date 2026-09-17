@@ -1,0 +1,67 @@
+{
+  "config": {
+    "apa_matrix": "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/visium_hd/gse337131_huntington/BG14/binned_8um/apa_matrix.csv",
+    "coordinates": "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/visium_hd/gse337131_huntington/BG14/binned_8um/coordinates.csv",
+    "n_genes": 40,
+    "n_spots": 689906,
+    "mask_fraction": 0.2,
+    "cal_fraction": 0.5,
+    "n_held_out": 694908,
+    "n_calibration": 347454,
+    "n_test": 347454,
+    "filter_frac": 0.2,
+    "seed": 42,
+    "gp_length_scale": 5.0,
+    "gp_n_inducing": 500,
+    "gp_nn_distance": 1.0
+  },
+  "timings": {
+    "gp_fit_impute_s": 588.8814377784729,
+    "total_s": 697.8143005371094
+  },
+  "before": {
+    "unc_error_pearson": 0.16950909924520943,
+    "unc_error_spearman": 0.3890760298406527,
+    "coverage": {
+      "80pct": 0.09725891772723871,
+      "90pct": 0.15538171959453626,
+      "95pct": 0.49854657019346443
+    },
+    "rmse": 4.752530836567681,
+    "rmse_after_filter_top_unc": 4.646722868373505
+  },
+  "after": {
+    "modes": {
+      "global": {
+        "coverage": {
+          "80pct": 0.7997432753688258,
+          "90pct": 0.8997104652702228,
+          "95pct": 0.9499674777092795
+        },
+        "q_hat": {
+          "80pct": 5.77293364766482,
+          "90pct": 7.888366015442595,
+          "95pct": 9.915656584971384
+        },
+        "calibration_unc_error_corr": NaN,
+        "rmse": 4.752530836567681,
+        "rmse_after_filter_top_unc": 4.775170854067736
+      },
+      "locally_adaptive": {
+        "coverage": {
+          "80pct": 0.7998181054182711,
+          "90pct": 0.8998284665020405,
+          "95pct": 0.9500106488916519
+        },
+        "q_hat": {
+          "80pct": 5.627918239993992,
+          "90pct": 7.593704167929061,
+          "95pct": 9.515829518679672
+        },
+        "calibration_unc_error_corr": 0.17015071047163946,
+        "rmse": 4.752530836567681,
+        "rmse_after_filter_top_unc": 4.646722868373504
+      }
+    }
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "config": {
+    "apa_matrix": "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/visium_hd/gse291088_embryo/A1/binned_8um/apa_matrix.csv",
+    "coordinates": "/s1/SHARE/mengzijun/01_project/26_spaGAPA/spaGAPA/pipeline_output/visium_hd/gse291088_embryo/A1/binned_8um/coordinates.csv",
+    "n_genes": 137,
+    "n_spots": 303052,
+    "mask_fraction": 0.2,
+    "cal_fraction": 0.5,
+    "n_held_out": 175453,
+    "n_calibration": 87726,
+    "n_test": 87727,
+    "filter_frac": 0.2,
+    "seed": 42,
+    "gp_length_scale": 5.0,
+    "gp_n_inducing": 500,
+    "gp_nn_distance": 1.0
+  },
+  "timings": {
+    "gp_fit_impute_s": 716.4243643283844,
+    "total_s": 799.0029017925262
+  },
+  "before": {
+    "unc_error_pearson": 0.3222598304656975,
+    "unc_error_spearman": 0.7417508579299229,
+    "coverage": {
+      "80pct": 0.8918918918918919,
+      "90pct": 0.9152598401860317,
+      "95pct": 0.9711947291027848
+    },
+    "rmse": 1.0839456004626444,
+    "rmse_after_filter_top_unc": 1.0464613347885001
+  },
+  "after": {
+    "modes": {
+      "global": {
+        "coverage": {
+          "80pct": 0.8025693344124386,
+          "90pct": 0.9006235252544826,
+          "95pct": 0.9493656456963079
+        },
+        "q_hat": {
+          "80pct": 0.9917364481026143,
+          "90pct": 1.1076015918140096,
+          "95pct": 1.928166117878269
+        },
+        "calibration_unc_error_corr": NaN,
+        "rmse": 1.0839456004626444,
+        "rmse_after_filter_top_unc": 1.08558946646536
+      },
+      "locally_adaptive": {
+        "coverage": {
+          "80pct": 0.8009962725272721,
+          "90pct": 0.9004297422686288,
+          "95pct": 0.9491718627104541
+        },
+        "q_hat": {
+          "80pct": 0.9485001161616289,
+          "90pct": 1.432043643290909,
+          "95pct": 1.8610680610460053
+        },
+        "calibration_unc_error_corr": 0.33533002908581183,
+        "rmse": 1.0839456004626444,
+        "rmse_after_filter_top_unc": 1.0464613347885001
+      }
+    }
+  }
+}
