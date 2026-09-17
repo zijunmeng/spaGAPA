@@ -23,6 +23,37 @@ All notable changes to spaGAPA are documented here.
   genes, 20% masking, 5 seeds) comparing raw vs logit GP on RMSE,
   out-of-bound counts, conformal coverage/width, spatial gradient
   recovery, and runtime. Results in `benchmark_results/logit_gp/`.
+- `scripts/hd_gp_benchmark.py`: HD-scale sparse-GP + conformal benchmark
+  on the Visium HD adrenal scAPAtrap counts (887 peaks x 2.0M barcodes),
+  superseding the per-peak-mean-only `hd_conformal_quick.json`. Samples
+  5k/20k/50k/100k barcodes (seed 42), top-300 peaks, 20% masking with
+  50/50 cal/eval split, and compares the logit sparse GP
+  (n_inducing=100) at the pipeline-default length scale vs an
+  inducing-spacing-adapted scale vs the per-peak mean on RMSE, pooled
+  split-conformal coverage/width at 80/90/95%, runtime, and peak RSS.
+  Headline: coverage is exact at every scale (max deviation ~0.015);
+  mean RMSE 0.273-0.283 vs GP 0.301-0.335 under pseudo-coordinates (no
+  spatial-skill claim); 95% intervals ~full [0,1] range for every
+  method (heavy-tailed single-read usage); fit 15-37s at 100k while
+  full-surface predict is dominated by a 300x-redundant per-gene test
+  kernel recomputation (cacheable); peak RSS 2.7 GB at 100k. Runs on
+  random 2D pseudo-coordinates (HD barcode bridging unresolved).
+  Results in `pipeline_output/hd_gp_benchmark/`.
+
+### Fixed
+
+- `morans_i_recovery` in `scripts/benchmark_stapaminer_headtohead.py`
+  compared Moran's I computed on different spot supports: mean /
+  spatial-KNN keep the sparse truth support (~363 spots/gene) while the
+  GP batch `impute()` (and the R tools) return dense matrices, so the
+  GP's per-gene Moran's I was computed over ALL spots on a different
+  kNN graph — driving its recovery to -0.28 with no modelling failure.
+  Predictions are now masked to the ground-truth observed support before
+  the imputed statistic; corrected recovery is +0.65/+0.67 on
+  gse183456/gse220442. Published benchmark tables regenerated from the
+  corrected values; audit (reproduction, support table, mask-fraction
+  sweep showing retention dominance, oracle check) in
+  `pipeline_output/morans_i_audit/`.
 
 ## [0.1.0] — 2026-03-11 (Beta)
 

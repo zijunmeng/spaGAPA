@@ -300,14 +300,30 @@ def main() -> None:
         return float(pearsonr(dev_pr, dev_nm)[0])
 
     def morans_i_recovery(pred_full: np.ndarray, gene_set=None) -> float:
-        """Secondary: Pearson r of per-gene Moran's I (imputed vs truth)."""
+        """Secondary: Pearson r of per-gene Moran's I (imputed vs truth).
+
+        Both Moran's I statistics are computed on the SAME spot support:
+        predictions outside the ground-truth observed support are masked
+        to NaN before the imputed statistic is computed.  Without this
+        restriction the metric compares statistics on different
+        neighbourhood graphs -- methods that return a dense matrix (the
+        GP batch ``impute()`` predicts every spot; the R tools fill
+        everything) get Moran's I over ALL spots while the ground truth
+        is sparse (~12% observed), which drove spaGAPA-GP's recovery to
+        -0.28 with no modelling failure (audit:
+        pipeline_output/morans_i_audit/).  Caveat retained: at a 20%
+        mask the score is dominated by the ~80% unmasked truth entries
+        (mean imputation scores +0.88 merely by retention), so treat it
+        as secondary to ``spatial_fidelity``.
+        """
         gs = gene_set if gene_set is not None else set(held_out.keys())
         Ig, It = [], []
         for g in gs:
             gt = gt_morans[g]
             if not np.isfinite(gt):
                 continue
-            v = pred_full[g]
+            v = pred_full[g].copy()
+            v[~observed[g]] = np.nan   # match the ground-truth support
             if np.isfinite(v).sum() < 10:
                 continue
             I, _, _ = _morans_i(v, xy, k=8, n_perm=0)

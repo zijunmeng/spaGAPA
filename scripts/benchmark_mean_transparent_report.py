@@ -330,7 +330,11 @@ def write_summary(df: pd.DataFrame, delta_df: pd.DataFrame, configs: dict) -> No
         "spearman": "GP competitive; dataset-dependent",
         "spatial_fidelity": "GP wins clearly (0.42 vs 0.00); mean scores 0 by construction "
                             "because it imputes a constant per gene and recovers no gradient",
-        "morans_i_recovery": "GP struggles at 20% mask (dominated by unmasked 80%); see note",
+        "morans_i_recovery": "GP below mean after the 2026-09-17 support fix "
+                            "(+0.65/+0.67 vs +0.88): at 20% masking the score is "
+                            "dominated by the ~80% retained truth, which the mean's "
+                            "constant fill barely perturbs; secondary to spatial "
+                            "fidelity (audit: pipeline_output/morans_i_audit/)",
         "wall_time_s": "GP loses to the trivial mean/spatial-KNN (no modelling) but "
                        "beats the R-based stAPAminer/spvAPA by a large factor (see Sec. 5)",
     }
