@@ -15,7 +15,7 @@ spaGAPA is a Python toolkit for spatial transcriptomics APA analysis. It address
 spaGAPA solves these problems through four core innovations:
 
 2. **Sparse Gaussian Process Framework** — O(n·m²) probabilistic imputation with heteroscedastic noise estimation; scales to 100k spots (competitors fail at 42k). Conformal coverage validated across **19 samples drawn from 10 independent GSE studies spanning 12 tissue contexts** / 3 species / 2 platforms / 2 callers (5.3M+ test points; mean |deviation| 0.21/0.16/0.10 pp at 80/90/95% on the 11-sample frozen set, ≤0.07 pp on 5 new samples). Four retinal-organoid samples are biological replicates of one study — counted as one context. Cross-sample transfer decay <0.4 pp on average. Coverage is exact under random splits at all depths and inducing budgets, but degrades conservatively under layer-blocked splits (+3.1 pp at 80%, see Limitation 5/11).
-3. **Subcellular Stereo-seq Support** — the only tool validated on subcellular-resolution Stereo-seq APA data (21,455 PAS × 20.7M DNBs)
+3. **Subcellular Stereo-seq Support** — to our knowledge, the first spatial APA framework providing conformal prediction intervals validated on subcellular-resolution Stereo-seq APA data (21,455 PAS × 20.7M DNBs)
 4. **Caller-Agnostic Design** — statistical guarantees hold unchanged when the PAS caller is swapped (scAPAtrap → Sierra on 3 datasets, 2 species × 3 tissues; max coverage deviation 0.5 pp)
 
 APA batch correction (quantile normalization + linear removal) is provided as an optional module.
@@ -380,7 +380,7 @@ OPENBLAS_NUM_THREADS=8 python -m pytest tests/ -q
 
 ### Contributions to the Field
 
-1. **Statistical rigor**: First spatial APA tool with conformal-calibrated uncertainty (distribution-free coverage guarantee)
+1. **Statistical rigor**: First spatial APA tool with conformal-calibrated uncertainty (distribution-free marginal coverage under exchangeability)
 2. **Caller robustness**: Coverage guarantees empirically invariant to the PAS caller (scAPAtrap/Sierra), species, and tissue
 3. **Scalability**: Sparse GP framework extends spatial APA to subcellular-resolution platforms (competitors are fundamentally O(n²))
 4. **Cross-study integration**: APA-specific batch correction (existing tools are expression-only)
