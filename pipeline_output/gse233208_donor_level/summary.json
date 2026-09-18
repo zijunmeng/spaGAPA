@@ -1,0 +1,201 @@
+{
+  "experiment": "gse233208_human_donor_level_differential_apa",
+  "date": "2026-09-18 10:25:07",
+  "purpose": "External-review Phase 2: replace spot-level pseudoreplicated AD APA evidence with donor-level tests in an independent human cohort with biological replicates",
+  "cohort": {
+    "source": "GSE233208 (Miyoshi et al., Nat Genet 2024)",
+    "platform": "Visium fresh-frozen 55um, PFC",
+    "n_donors": 16,
+    "diagnoses": {
+      "Control": 4,
+      "earlyAD": 4,
+      "AD": 4,
+      "AD_DS": 4
+    },
+    "unit_of_analysis": "donor (per-sample median spot distal-usage)"
+  },
+  "methods": {
+    "pas_caller": "scAPAtrap (TenX, peaks, cov.cutoff=10, min.cells=10)",
+    "gene_index": "median-split proximal/distal, MIN_PARENT=5",
+    "pseudobulk": "per-donor read-pooled distal usage: sum(distal)/sum(prox+dist) reads across spots (MIN_POOLED_READS=20); spots treated as technical subsamples",
+    "test": "Wilcoxon rank-sum across donors (exact, two-sided)",
+    "effect_size": "Cliff's delta + bootstrap 95% CI of median delta",
+    "multiple_testing": "BH-FDR",
+    "note": "p-value floor for 4v4 exact Wilcoxon = 0.0286; FDR<0.25 is the donor-level signal tier given n=4/group"
+  },
+  "contrasts": {
+    "AD_vs_Control": {
+      "n_genes_tested": 1464,
+      "n_p_lt_05": 18,
+      "n_fdr_lt_25": 0,
+      "n_fdr_lt_10": 0,
+      "top_genes": [
+        {
+          "gene": "SEC62",
+          "delta_disease_minus_control": -0.09557122189047784,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "SCD",
+          "delta_disease_minus_control": 0.10944147459763731,
+          "cliffs_delta": 1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "JPT1",
+          "delta_disease_minus_control": -0.147371570061418,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "ARID4B",
+          "delta_disease_minus_control": -0.34473780386226477,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "NALF1",
+          "delta_disease_minus_control": -0.15927132750826734,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "RORA",
+          "delta_disease_minus_control": -0.1006230230873123,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "HDGFL3",
+          "delta_disease_minus_control": -0.2735051416487939,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "MYCBP2",
+          "delta_disease_minus_control": -0.055824278697237384,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "GHITM",
+          "delta_disease_minus_control": 0.06579533159500395,
+          "cliffs_delta": 1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "FGF14",
+          "delta_disease_minus_control": -0.28349349636264964,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        }
+      ]
+    },
+    "all_disease_vs_Control": {
+      "n_genes_tested": 1464,
+      "n_p_lt_05": 18,
+      "n_fdr_lt_25": 0,
+      "n_fdr_lt_10": 0,
+      "top_genes": [
+        {
+          "gene": "SEC62",
+          "delta_disease_minus_control": -0.09557122189047784,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "SCD",
+          "delta_disease_minus_control": 0.10944147459763731,
+          "cliffs_delta": 1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "JPT1",
+          "delta_disease_minus_control": -0.147371570061418,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "ARID4B",
+          "delta_disease_minus_control": -0.34473780386226477,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "NALF1",
+          "delta_disease_minus_control": -0.15927132750826734,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "RORA",
+          "delta_disease_minus_control": -0.1006230230873123,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "HDGFL3",
+          "delta_disease_minus_control": -0.2735051416487939,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "MYCBP2",
+          "delta_disease_minus_control": -0.055824278697237384,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "GHITM",
+          "delta_disease_minus_control": 0.06579533159500395,
+          "cliffs_delta": 1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        },
+        {
+          "gene": "FGF14",
+          "delta_disease_minus_control": -0.28349349636264964,
+          "cliffs_delta": -1.0,
+          "p_value": 0.02857142857142857,
+          "fdr_BH": 0.9506493506493506
+        }
+      ]
+    }
+  },
+  "consistency_with_gse263789_mouse_ad": {
+    "n_shared_genes": 439,
+    "n_same_direction": 195,
+    "binom_p_direction": 0.021861269237671378,
+    "spearman_rho": -0.0605367968069625,
+    "spearman_p": 0.20553753196201327,
+    "n_mouse_spotFDR": 362,
+    "n_same_direction_mouse_spotFDR": 159,
+    "binom_p_direction_mouse_spotFDR": 0.02368649042334669
+  },
+  "published_ad_apa_gene_panel": {
+    "n_known_genes": 20,
+    "n_tested_in_our_data": 11,
+    "n_p_lt_05": 0,
+    "fisher_enrichment_p": 1.0,
+    "hits": []
+  }
+}
